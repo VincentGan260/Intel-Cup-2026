@@ -1,0 +1,77 @@
+# 单张图片目标检测配置。
+# 修改模型、输入图片、置信度、输出目录、保留类别时，只改这个文件。
+
+# 输入源：可以是图片路径、图片 URL；后续摄像头脚本中也可以使用 0 这类摄像头编号。
+source: https://ultralytics.com/images/bus.jpg
+
+# YOLO 模型推理参数。
+detector:
+  # Ultralytics will download the weight automatically when supported.
+  # You can change this to yolov8n.pt if yolo26n.pt is unavailable locally.
+  # 模型权重路径。若 yolo26n.pt 暂时不可用，可改成 yolov8n.pt 先跑通流程。
+  model_path: yolo26n.pt
+
+  # 置信度阈值：越高越严格，低置信度目标会被过滤。
+  confidence: 0.25
+
+  # 推理输入尺寸。一般先用 640，后续可为了速度调小。
+  image_size: 640
+
+  # 推理设备。null 表示让 Ultralytics 自动选择；也可填 cpu、0、cuda:0 等。
+  device: null
+
+# 输出设置。
+output:
+  # 是否保存带框结果图。
+  save: true
+
+  # 检测结果输出根目录。
+  project: outputs/vision/detection
+
+  # 本次运行的子目录名。
+  name: image
+
+  # true 表示同名目录存在时允许覆盖/复用，避免重复生成 image2、image3。
+  exist_ok: true
+
+  # Ultralytics 全局 runs 输出目录。
+  runs_dir: outputs/vision/runs
+
+# 后处理设置：把模型类别转换为项目内部类别，并控制是否过滤无关目标。
+postprocess:
+  # true 表示只保留下面 target_classes 中列出的目标。
+  keep_target_classes_only: true
+
+  # 当 keep_target_classes_only 为 false 时，未映射类别会归为这个类别。
+  other_project_class: other
+
+  # 项目类别 -> YOLO/COCO 模型类别。
+  # 左边是项目内部类别，右边是模型输出类别名。
+  target_classes:
+    # 行人。
+    pedestrian:
+      - person
+
+    # 非机动车：自行车、摩托车/电动车先统一归到这一类。
+    non_motor_vehicle:
+      - bicycle
+      - motorcycle
+
+    # 机动车。
+    motor_vehicle:
+      - car
+      - bus
+      - truck
+
+# 训练配置，后续需要微调模型时使用。
+train:
+  data: coco8.yaml
+  epochs: 3
+
+# 验证配置，后续评估模型效果时使用。
+val:
+  data: coco8.yaml
+
+# 导出配置，后续导出 ONNX/OpenVINO 时使用。
+export:
+  format: onnx

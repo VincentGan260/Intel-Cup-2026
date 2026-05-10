@@ -15,4 +15,12 @@ https://docs.ultralytics.com/zh/models/yolo26/
 https://docs.ultralytics.com/zh/integrations/openvino/#inference-with-openvino-runtime
 
 ## Team Docs 用于指导团队规范协作
-- [Team Development Guide](docs/team_development_guide.md)
+- [Team Development Guide](docs/guide/team_development_guide.md)
+- [Vision Development Guide](docs/guide/vision_development_guide.md)
+
+## 当前视觉开发入口
+
+- 视觉源码目录：`src/vision/`
+- 视觉调试脚本：`scripts/vision/`
+- 视觉配置目录：`configs/vision/`
+- 本地模型目录：`models/vision/`

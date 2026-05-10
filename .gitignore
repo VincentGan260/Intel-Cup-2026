@@ -22,3 +22,29 @@ Thumbs.db
 # Runtime
 logs/*.log
 .env
+
+# Local datasets and generated outputs
+data/raw/**
+data/processed/**
+!data/raw/
+!data/raw/.gitkeep
+!data/raw/*/
+!data/raw/*/.gitkeep
+!data/processed/
+!data/processed/.gitkeep
+!data/processed/*/
+!data/processed/*/.gitkeep
+outputs/**
+!outputs/
+!outputs/.gitkeep
+!outputs/vision/
+!outputs/vision/.gitkeep
+!outputs/vision/*/
+!outputs/vision/*/.gitkeep
+
+# Local model weights and exports
+models/**/*.pt
+models/**/*.onnx
+models/**/*.xml
+models/**/*.bin
+models/**/*.engine

@@ -1,2 +1,2 @@
 #!/usr/bin/env bash
-python vision/infer.py
+python scripts/vision/01_test_yolo_image.py "$@"
