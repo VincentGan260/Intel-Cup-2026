@@ -23,6 +23,12 @@ Thumbs.db
 logs/*.log
 .env
 
+# Ultralytics runtime outputs
+runs/
+
+# Downloaded demo assets
+/bus.jpg
+
 # Local datasets and generated outputs
 data/raw/**
 data/processed/**
@@ -43,6 +49,11 @@ outputs/**
 !outputs/vision/*/.gitkeep
 
 # Local model weights and exports
+*.pt
+*.onnx
+*.xml
+*.bin
+*.engine
 models/**/*.pt
 models/**/*.onnx
 models/**/*.xml
