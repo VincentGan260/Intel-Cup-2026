@@ -29,24 +29,18 @@ runs/
 # Downloaded demo assets
 /bus.jpg
 
-# Local datasets and generated outputs
-data/raw/**
-data/processed/**
-!data/raw/
-!data/raw/.gitkeep
-!data/raw/*/
-!data/raw/*/.gitkeep
-!data/processed/
-!data/processed/.gitkeep
-!data/processed/*/
-!data/processed/*/.gitkeep
+# 本地测试图（可提交少量样例；大文件不要放这里）
+data/samples/**
+!data/samples/
+!data/samples/detection/
+!data/samples/detection/.gitkeep
+
+# 项目自产输出（JSON、整理后的结果等；当前 YOLO 可视化在 runs/）
 outputs/**
 !outputs/
 !outputs/.gitkeep
 !outputs/vision/
 !outputs/vision/.gitkeep
-!outputs/vision/*/
-!outputs/vision/*/.gitkeep
 
 # Local model weights and exports
 *.pt

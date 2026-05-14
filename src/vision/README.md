@@ -1,29 +1,32 @@
-# Vision Module
+# Vision Module（视觉子系统）
 
-视觉感知模块负责前向摄像头相关能力，包括目标检测、道路语义分割，以及检测结果与道路区域的视觉融合。
+骑手前向安全预警中的**视觉部分**：目标检测、语义分割、检测分割融合、视觉风险初判。
 
-## 目录结构
+## 目录约定
 
-```text
-src/vision/
-├─ detector/        # 目标检测，当前先做 YOLO26n/YOLOv8n
-└─ common/          # 视觉通用数据结构
-```
+- **`common/`**：统一数据结构（`types.py`）、抽象接口（`interfaces.py`）、通用预处理与可视化。
+- **`detection/`**：只负责检测；具体 YOLO 实现在 `detection/models/`，通过 `BaseDetector` 与管线解耦。
+- **`segmentation/`**：只负责分割与可行驶 mask；OpenVINO ADAS、后续 PIDNet 放在 `segmentation/models/`。
+- **`perception/`**：`VisionPipeline` 组合检测与分割，并调用 `target_on_road` 做几何融合。
+- **`risk/`**：仅视觉侧 `visual_risk` 初判；雷达、IMU、GPS、TTC 等放在未来的 `src/fusion/`。
 
-## 当前开发顺序
+**权重路径**在仓库根目录 `models/` 下配置；**不写死**具体框架，换 PyTorch / OpenVINO 时只替换 `*/models/` 内实现类，并在 `detector.py` / `segmenter.py` 工厂中挂接。
 
-1. 在 `detector/` 中跑通 YOLO26n/YOLOv8n 图片检测。
-2. 跑通摄像头实时检测。
-3. 做人、非机动车、机动车类别映射和过滤。
-4. 后续再创建 `segmenter/` 做道路语义分割。
-5. 最后接入 OpenVINO 推理后端。
-
-## 运行第一阶段检测
+## 脚本入口
 
 ```bash
 python scripts/vision/01_test_yolo_image.py
+python scripts/vision/02_test_segmentation_openvino.py
+python scripts/vision/03_test_vision_pipeline.py
 ```
 
-默认配置文件是 `configs/vision/detection.yaml`。
+配置分别为：
 
-当前目录只保留第一阶段实际会用到的文件，避免过多空文件干扰查找。
+- `configs/vision/detection.yaml`
+- `configs/vision/segmentation_openvino.yaml`
+- `configs/vision/vision_pipeline.yaml`
+
+## 输出位置
+
+- 视觉输出统一在 **`runs/vision/`** 下：检测为 `runs/vision/detect/<project>/<name>/`（`detection.yaml` 的 `output`），分割叠加图见 `segmentation_openvino.yaml` 的 `output.overlay_path`，管线调试图见 `vision_pipeline.yaml`。
+- `outputs/vision/`：预留项目自产结构化结果（如 JSON），非 Ultralytics 默认输出。

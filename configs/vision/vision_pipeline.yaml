@@ -1,0 +1,18 @@
+# 视觉最小闭环：检测 + 分割 + 视觉风险初判
+# 子配置路径均为相对项目根目录。
+
+# 输入图像（URL 或相对路径）
+source: https://ultralytics.com/images/bus.jpg
+
+# 是否启用语义分割（关闭时仅做检测 + 视觉风险，in_drivable_area 为 None）
+enable_segmentation: true
+
+# 子模块配置文件路径
+detection_config: configs/vision/detection.yaml
+segmentation_config: configs/vision/segmentation_openvino.yaml
+
+output:
+  # 是否保存带检测框的调试图
+  save_debug_image: false
+  # 与 detection / segmentation 同属 runs/vision/
+  debug_image_path: runs/vision/pipeline/debug.jpg

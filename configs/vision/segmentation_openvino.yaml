@@ -1,0 +1,50 @@
+# OpenVINO 道路分割 demo：road-segmentation-adas-0001
+# 所有可调项放在本文件，代码中不写死路径与设备名。
+
+# 输入图像：相对项目根目录的路径，或以 http/https 开头的 URL。
+# 若本地还没有样例图，可先用官方 bus 图 URL（与检测 demo 一致）。
+source: https://ultralytics.com/images/bus.jpg
+
+# OpenVINO IR 模型（需先下载，见文件末尾说明）。
+model:
+  # 短路径约定：把同名的 .xml 与 .bin 放在同一目录下即可（无 intel/FP32 嵌套）。
+  # 若用 omz_downloader，默认会生成 intel/.../FP32/，把其中两个文件拷到下面目录即可。
+  xml_path: models/openvino/road-segmentation-adas-0001/road-segmentation-adas-0001.xml
+
+  # 与 OMZ 文档一致：H=512, W=896。
+  input_height: 512
+  input_width: 896
+
+  # 与输出通道顺序一致：BG, road, curb, mark。road 类索引默认为 1。
+  class_names:
+    - background
+    - road
+    - curb
+    - mark
+
+  # 将哪一类视作「可行驶区域」。road-segmentation-adas-0001 中 road 为 1。
+  road_class_index: 1
+
+openvino:
+  # 推理设备：CPU、GPU、NPU 等，以本机 OpenVINO 支持为准。
+  device: CPU
+
+visualization:
+  # 叠加透明度，0~1，越大颜色越实。
+  alpha: 0.45
+  # 每类 BGR 颜色，与 class_names 一一对应。
+  colors_bgr:
+    - [0, 0, 0]
+    - [0, 200, 0]
+    - [0, 128, 255]
+    - [200, 200, 200]
+
+output:
+  # 叠加结果保存路径（相对项目根目录）；与检测输出同属 runs/vision/。
+  overlay_path: runs/vision/segmentation_openvino/demo/overlay.jpg
+
+# 下载模型（在项目根目录执行，仅需一次）：
+#   omz_downloader --name road-segmentation-adas-0001 --output_dir models/openvino
+# 然后将 models/openvino/intel/road-segmentation-adas-0001/FP32/ 下的 .xml 与 .bin
+# 复制到 models/openvino/road-segmentation-adas-0001/（与上方 xml_path 一致）。
+# 若未安装 omz 工具，请使用 OpenVINO / Open Model Zoo 文档中的等价下载方式。

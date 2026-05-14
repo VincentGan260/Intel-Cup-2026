@@ -190,8 +190,11 @@ Intel-Cup-2026/
 │  └─ controller.py
 ├─ src/
 │  └─ vision/
-│     ├─ detector/
-│     └─ common/
+│     ├─ common/
+│     ├─ detection/
+│     ├─ segmentation/
+│     ├─ perception/
+│     └─ risk/
 ├─ embedded/
 │  ├─ serial_comm.py
 │  ├─ protocol.py
@@ -201,7 +204,9 @@ Intel-Cup-2026/
 │  ├─ dev.yaml
 │  ├─ deploy.yaml
 │  └─ vision/
-│     └─ detection.yaml
+│     ├─ detection.yaml
+│     ├─ segmentation_openvino.yaml
+│     └─ vision_pipeline.yaml
 ├─ scripts/
 │  ├─ setup_train_env_win.ps1
 │  ├─ setup_dev_env_linux.sh
@@ -218,31 +223,15 @@ Intel-Cup-2026/
 │  ├─ train.txt
 │  ├─ dev.txt
 │  └─ deploy.txt
-├─ tests/
-│  ├─ test_infer.py
-│  ├─ test_serial.py
-│  └─ test_config.py
 ├─ models/
 │  ├─ .gitkeep
-│  └─ vision/
-│     ├─ detection/
-│     └─ segmentation/
+│  └─ openvino/
 ├─ logs/
 │  └─ .gitkeep
 ├─ outputs/
 │  └─ vision/
-│     ├─ detection/
-│     ├─ segmentation/
-│     └─ fusion/
 └─ data/
    ├─ .gitkeep
-   ├─ raw/
-   │  ├─ detection/
-   │  └─ segmentation/
-   ├─ samples/
-   │  ├─ detection/
-   │  └─ segmentation/
-   └─ processed/
-      ├─ detection/
-      └─ segmentation/
+   └─ samples/
+      └─ detection/
 ```

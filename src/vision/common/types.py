@@ -1,29 +1,42 @@
-"""视觉模块通用数据结构。
+"""视觉模块统一数据结构（与具体模型框架解耦）。"""
 
-这些结构用于隔离第三方库输出，避免后续代码直接依赖 Ultralytics 的内部格式。
-"""
+from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
+from typing import List, Optional, Tuple
 
-@dataclass(frozen=True)
-class Detection:
-    """单个目标检测结果。
+import numpy as np
 
-    class_name: 模型原始类别名，例如 person、car。
-    project_class: 项目内部类别名，例如 pedestrian、motor_vehicle。
-    confidence: 模型置信度。
-    bbox_xyxy: 检测框坐标，格式为左上角和右下角 (x1, y1, x2, y2)。
-    """
+BBox = Tuple[float, float, float, float]  # x1, y1, x2, y2
+
+
+@dataclass
+class DetectionResult:
+    """单目标检测结果。"""
 
     class_name: str
-    project_class: str
+    risk_class: str
     confidence: float
-    bbox_xyxy: tuple[float, float, float, float]
+    bbox: BBox
+    in_drivable_area: Optional[bool] = None
+    visual_risk: Optional[float] = None
 
 
-@dataclass(frozen=True)
-class ImageDetections:
-    """单张图片或单帧画面的检测结果。"""
+@dataclass
+class SegmentationResult:
+    """语义分割结果：可行驶区域二值 mask 与原图同高宽。"""
 
-    source: str
-    detections: list[Detection]
+    drivable_mask: np.ndarray
+    raw_mask: Optional[np.ndarray] = None
+    drivable_ratio: Optional[float] = None
+
+
+@dataclass
+class VisionResult:
+    """视觉管线输出，供系统级 `src/fusion/` 等模块消费。"""
+
+    detections: List[DetectionResult] = field(default_factory=list)
+    segmentation: Optional[SegmentationResult] = None
+    # 便于 fusion 直接读取，与 segmentation.drivable_mask 在分割开启时一致
+    drivable_mask: Optional[np.ndarray] = None
+    max_visual_risk: float = 0.0
