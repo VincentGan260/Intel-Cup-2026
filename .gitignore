@@ -11,9 +11,8 @@ __pycache__/
 venv/
 env/
 
-# IDE
-.vscode/
-.idea/
+# 说明：不要在此忽略 scripts/、docs/、configs/、environment/ 等需协作的源码与文档。
+# 若需共享 VS Code / JetBrains 工作区配置，也不要忽略整个 .vscode/ 或 .idea/（可只忽略含本机路径的私有文件）。
 
 # OS
 .DS_Store
@@ -22,7 +21,6 @@ Thumbs.db
 # Runtime
 logs/*.log
 .env
-
 # Ultralytics runtime outputs
 runs/
 
@@ -42,14 +40,5 @@ outputs/**
 !outputs/vision/
 !outputs/vision/.gitkeep
 
-# Local model weights and exports
-*.pt
-*.onnx
-*.xml
-*.bin
-*.engine
-models/**/*.pt
-models/**/*.onnx
-models/**/*.xml
-models/**/*.bin
-models/**/*.engine
+# 模型权重（.pt、OpenVINO .xml/.bin、ONNX 等）不忽略，便于队友 clone 后按文档配环境即可跑。
+# TensorRT .engine 等若体积过大可自行改为 LFS 或再加回忽略。

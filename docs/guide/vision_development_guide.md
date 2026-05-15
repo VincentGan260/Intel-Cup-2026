@@ -52,7 +52,7 @@ configs/vision/
 - **`detection/models/`** 与 **`segmentation/models/`**：仅负责加载权重与推理；类别筛选、可行驶判断、风险分数在 `detection/postprocess.py`、`perception/`、`risk/`。
 - **`perception/VisionPipeline`**：检测 + 分割 + `in_drivable_area` + `visual_risk`；输出 `VisionResult`（含 `drivable_mask` 副本便于 fusion）。
 - **`risk/visual_risk.py`**：仅视觉初判；系统级融合放在未来的 `src/fusion/`。
-- **权重文件**：OpenVINO IR 等放在仓库根目录 `models/openvino/`（大文件 `.gitignore` 忽略）；YOLO 等路径由 `configs/vision/detection.yaml` 指定。
+- **权重文件**：OpenVINO IR、YOLO `.pt` 等放在仓库根目录 `models/`（团队选择纳入 Git 时，clone 后配好依赖即可跑）；路径由 `configs/vision/*.yaml` 指定。
 
 ## 3. 目标检测和语义分割边界
 
@@ -80,7 +80,8 @@ configs/vision/
 ## 4. 提交约定
 
 - 可以提交：代码、配置、说明文档、少量测试样例。
-- 不要提交：大模型权重、完整训练数据集、大量运行结果、本机绝对路径。
+- 不要提交：完整训练数据集、大量运行结果、本机绝对路径、含密钥的 `.env`。
+- 模型权重：若体积可接受且许可允许，可纳入仓库便于队友开箱即跑；过大时改用 Git LFS 或制品库。
 - 新增依赖时，同步更新 `requirements/train.txt` 和必要的环境说明。
 - 改动运行命令、配置字段或目录结构时，同步更新本指南。
 
