@@ -13,13 +13,13 @@ def build_detector_from_config(
     config: Mapping[str, Any],
     *,
     project_root: Path,
-    backend: str = "yolo_ultralytics",
+    backend: str = None,
 ) -> BaseDetector:
     """根据 YAML 配置字典构建检测器。
 
     backend:
       - yolo_ultralytics: 当前默认，使用 .pt 与 Ultralytics。
-      - yolo_openvino: 后续实现，对应 `YoloOpenVinoDetector`。
+      - openvino: 使用 OpenVINO IR 模型，通过 Ultralytics 加载。
     """
     detector_cfg = dict(config["detector"])
     output_cfg = dict(config.get("output", {}))
@@ -37,7 +37,13 @@ def build_detector_from_config(
             (rp if rp.is_absolute() else (project_root / rp)).resolve()
         )
 
-    if backend == "yolo_ultralytics":
+    # ── 解析有效后端：配置文件中的 backend 字段优先 ──
+    effective_backend = detector_cfg.get("backend", "yolo_ultralytics")
+    if backend is not None:
+        effective_backend = backend
+
+    # ── 原有分支：yolo_ultralytics（完全保持不变） ──
+    if effective_backend == "yolo_ultralytics":
         return YoloUltralyticsDetector(
             model_path=model_path,
             confidence=float(detector_cfg["confidence"]),
@@ -50,9 +56,15 @@ def build_detector_from_config(
             predict_exist_ok=bool(output_cfg.get("exist_ok", True)),
         )
 
-    if backend == "yolo_openvino":
+    # ── 新增分支：openvino ──
+    if effective_backend == "openvino":
         from src.vision.detection.models.yolo_openvino import YoloOpenVinoDetector
 
-        return YoloOpenVinoDetector()
+        return YoloOpenVinoDetector(
+            model_path=model_path,
+            confidence=float(detector_cfg["confidence"]),
+            image_size=int(detector_cfg["image_size"]),
+            device=detector_cfg.get("device", "CPU"),
+        )
 
-    raise ValueError(f"不支持的 detector backend: {backend}")
+    raise ValueError(f"不支持的 detector backend: {effective_backend}")
