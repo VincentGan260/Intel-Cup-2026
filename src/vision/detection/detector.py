@@ -11,7 +11,6 @@ from src.vision.detection.models.yolo_ultralytics import YoloUltralyticsDetector
 
 def build_detector_from_config(
     config: Mapping[str, Any],
-    *,
     project_root: Path,
     backend: str = None,
 ) -> BaseDetector:
@@ -60,11 +59,13 @@ def build_detector_from_config(
     if effective_backend == "openvino":
         from src.vision.detection.models.yolo_openvino import YoloOpenVinoDetector
 
-        return YoloOpenVinoDetector(
-            model_path=model_path,
-            confidence=float(detector_cfg["confidence"]),
-            image_size=int(detector_cfg["image_size"]),
-            device=detector_cfg.get("device", "CPU"),
-        )
+    # 从配置中读取风险映射（可能不存在，给默认空字典）
+    risk_mapping = config.get("risk_class_mapping", {})
 
-    raise ValueError(f"不支持的 detector backend: {effective_backend}")
+    return YoloOpenVinoDetector(
+        model_path=model_path,
+        confidence=float(detector_cfg["confidence"]),
+        image_size=int(detector_cfg["image_size"]),
+        device=detector_cfg.get("device", "CPU"),
+        risk_mapping=risk_mapping,
+    )

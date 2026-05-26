@@ -9,7 +9,7 @@ detector:
   # Ultralytics will download the weight automatically when supported.
   # You can change this to yolov8n.pt if yolo26n.pt is unavailable locally.
   # 模型权重路径。若 yolo26n.pt 暂时不可用，可改成 yolov8n.pt 先跑通流程。
-  model_path: models/yolov26n_openvino_model
+  model_path: models/yolo26n_openvino_model
 
   # 置信度阈值：越高越严格，低置信度目标会被过滤。
   confidence: 0.25
