@@ -59,13 +59,17 @@ def build_detector_from_config(
     if effective_backend == "openvino":
         from src.vision.detection.models.yolo_openvino import YoloOpenVinoDetector
 
-    # 从配置中读取风险映射（可能不存在，给默认空字典）
-    risk_mapping = config.get("risk_class_mapping", {})
+    # 从配置顶层或 detector 块内读取风险映射（按你实际存放位置）
+    risk_mapping = config.get("risk_class_mapping", {})  # 通常位于顶层
 
     return YoloOpenVinoDetector(
         model_path=model_path,
         confidence=float(detector_cfg["confidence"]),
         image_size=int(detector_cfg["image_size"]),
         device=detector_cfg.get("device", "CPU"),
-        risk_mapping=risk_mapping,
+        save=bool(output_cfg.get("save", False)),
+        project=str(output_cfg.get("project", "yolo26n_demo")),
+        name=str(output_cfg.get("name", "pred")),
+        exist_ok=bool(output_cfg.get("exist_ok", True)),
+        risk_mapping=risk_mapping,   # 传入
     )
