@@ -1,0 +1,36 @@
+# BDD100K 可行驶区域分割配置
+dataset_name: bdd100k_drivable
+task_type: segmentation
+
+# 数据路径
+data_root: ${DATASET_ROOT}/bdd100k
+images_dir: ${data_root}/images/100k
+labels_dir: ${data_root}/labels/drivable
+
+# 数据划分文件
+train_split: ${PROJECT_ROOT}/data/splits/bdd_drivable_train.txt
+val_split: ${PROJECT_ROOT}/data/splits/bdd_drivable_val.txt
+
+# 分割类别
+num_classes: 2
+classes:
+  - drivable_area
+  - non_drivable_area
+
+# 类别映射（从BDD100K原始类别）
+class_mapping:
+  direct: drivable_area
+  alternative: drivable_area
+  background: non_drivable_area
+
+# 图像尺寸
+input_size:
+  width: 640
+  height: 360
+
+# 批处理配置
+batch_size: 8
+num_workers: 4
+
+# 标注格式
+annotation_format: bdd100k_drivable

@@ -1,0 +1,59 @@
+# BDD100K 目标检测配置
+dataset_name: bdd100k_detection
+task_type: detection
+
+# 数据路径（使用相对路径或环境变量）
+data_root: ${DATASET_ROOT}/bdd100k
+images_dir: ${data_root}/images/100k
+labels_dir: ${data_root}/labels/detection20
+
+# 子集路径
+subset_root: ${DATASET_ROOT}/bdd100k_subset_500
+subset_images_dir: ${subset_root}/images/val
+
+# 数据划分文件
+train_split: ${PROJECT_ROOT}/data/splits/bdd_train.txt
+val_split: ${PROJECT_ROOT}/data/splits/bdd_val.txt
+test_split: ${PROJECT_ROOT}/data/splits/bdd_test.txt
+selected_split: ${PROJECT_ROOT}/data/splits/bdd_selected.txt
+
+# 类别配置
+num_classes: 6
+classes:
+  - person
+  - bicycle
+  - motorcycle
+  - car
+  - bus
+  - truck
+
+# 风险类别映射
+risk_mapping:
+  person: pedestrian
+  bicycle: non_motor_vehicle
+  motorcycle: non_motor_vehicle
+  car: motor_vehicle
+  bus: motor_vehicle
+  truck: motor_vehicle
+
+# 图像尺寸
+input_size:
+  width: 640
+  height: 640
+
+# 数据增强
+augmentation:
+  enabled: true
+  resize: true
+  random_flip: true
+  random_crop: true
+  brightness: 0.2
+  contrast: 0.2
+  saturation: 0.2
+
+# 批处理配置
+batch_size: 8
+num_workers: 4
+
+# 标注格式
+annotation_format: bdd100k

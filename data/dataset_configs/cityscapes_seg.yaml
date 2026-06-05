@@ -1,0 +1,40 @@
+# Cityscapes 语义分割配置
+dataset_name: cityscapes_segmentation
+task_type: segmentation
+
+# 数据路径
+data_root: ${DATASET_ROOT}/cityscapes
+images_dir: ${data_root}/leftImg8bit
+labels_dir: ${data_root}/gtFine
+
+# 数据划分文件
+train_split: ${PROJECT_ROOT}/data/splits/cityscapes_train.txt
+val_split: ${PROJECT_ROOT}/data/splits/cityscapes_val.txt
+selected_split: ${PROJECT_ROOT}/data/splits/cityscapes_selected.txt
+
+# 分割类别（简化为二分类）
+num_classes: 2
+classes:
+  - drivable_area
+  - non_drivable_area
+
+# 类别映射（从Cityscapes原始类别合并）
+class_mapping:
+  road: drivable_area
+  sidewalk: drivable_area
+  terrain: drivable_area
+  parking: drivable_area
+  rail_track: drivable_area
+  # 其他所有类别都归为 non_drivable_area
+
+# 图像尺寸
+input_size:
+  width: 1024
+  height: 512
+
+# 批处理配置
+batch_size: 4
+num_workers: 4
+
+# 标注格式
+annotation_format: cityscapes

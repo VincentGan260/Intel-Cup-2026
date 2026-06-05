@@ -1,0 +1,17 @@
+# Intel-Cup-2026 依赖包
+
+# 核心依赖
+ultralytics>=8.0.0
+openvino>=2024.0.0
+opencv-python>=4.8.0
+numpy>=1.24.0
+pandas>=2.0.0
+psutil>=5.9.0
+
+# 可选依赖（用于模型转换）
+# openvino-dev[onnx,pytorch,tensorflow2]
+
+# 数据处理（可选）
+pillow>=10.0.0
+matplotlib>=3.7.0
+seaborn>=0.12.0
