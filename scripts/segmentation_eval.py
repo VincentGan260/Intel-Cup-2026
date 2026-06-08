@@ -1,8 +1,12 @@
 """
 语义分割模型测试脚本
 测试 OpenVINO road-segmentation-adas-0001 模型
+
+路径全部读自 configs/vision/datasets.yaml（可被 datasets.local.yaml 覆盖），
+改路径不用动这个文件。
 """
 from pathlib import Path
+import sys
 import time
 import csv
 import statistics
@@ -11,13 +15,17 @@ import numpy as np
 from openvino import Core
 import cv2
 
-ROOT = Path("/Users/vincent/Desktop/Intel-Cup-2026")
-SPLITS_DIR = ROOT / "data" / "splits"
-DATASETS_DIR = ROOT / "datasets"
-OUTPUT_DIR = ROOT / "runs" / "segmentation_eval"
+PROJECT_ROOT = Path(__file__).resolve().parents[1]
+if str(PROJECT_ROOT) not in sys.path:
+    sys.path.insert(0, str(PROJECT_ROOT))
 
-# 模型路径
-SEG_MODEL_XML = ROOT / "models" / "openvino" / "road-segmentation-adas-0001" / "road-segmentation-adas-0001.xml"
+from scripts.dataset_paths import load_path_config, resolve
+
+_PATHS = load_path_config()
+OUTPUT_DIR = resolve(_PATHS.get("eval_output_dir", "runs/segmentation_eval"))
+SEG_MODEL_XML = resolve(
+    _PATHS.get("model_xml", "models/openvino/road-segmentation-adas-0001/road-segmentation-adas-0001.xml")
+)
 
 OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 
@@ -194,29 +202,18 @@ def main():
     output_blob = next(iter(model.outputs))
     print(f"输入: {input_blob.any_name}, 输出: {output_blob.any_name}")
     
-    # 数据集配置
+    # 数据集配置（来自 configs/vision/datasets.yaml 的 eval_datasets）
     datasets = [
         {
-            "name": "bdd100k",
-            "split_file": SPLITS_DIR / "bdd_selected.txt",
-            "image_dir": DATASETS_DIR / "bdd100k_subset_500" / "images" / "val"
-        },
-        {
-            "name": "cityscapes",
-            "split_file": SPLITS_DIR / "cityscapes_selected.txt",
-            "image_dir": DATASETS_DIR / "cityscapes"
-        },
-        {
-            "name": "acdc",
-            "split_file": SPLITS_DIR / "acdc_selected.txt",
-            "image_dir": DATASETS_DIR / "acdc"
-        },
-        {
-            "name": "idd",
-            "split_file": SPLITS_DIR / "idd_lite_selected.txt",
-            "image_dir": DATASETS_DIR / "idd"
+            "name": ds["name"],
+            "split_file": resolve(ds["split_file"]),
+            "image_dir": resolve(ds["image_dir"]),
         }
+        for ds in _PATHS.get("eval_datasets", [])
     ]
+    if not datasets:
+        print("错误：configs/vision/datasets.yaml 里没有 eval_datasets 配置")
+        return
     
     all_stats = []
     

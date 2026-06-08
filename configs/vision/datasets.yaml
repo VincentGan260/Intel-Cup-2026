@@ -1,0 +1,46 @@
+# =============================================================================
+# 数据集 / 输出路径配置（测试脚本共用）
+# -----------------------------------------------------------------------------
+# 改路径只改这个文件即可，不用动代码。
+# 如果你和队友机器上路径不同，复制本文件为 configs/vision/datasets.local.yaml，
+# 在里面写自己的路径——local 文件不进 git，会覆盖本文件对应的项，互不冲突。
+# 命令行参数（--image-dir / --out-dir / --num ...）优先级最高，可临时覆盖。
+#
+# 路径写法：相对路径以「项目根目录」为基准；也可以直接写绝对路径。
+# =============================================================================
+
+# --- 可视化脚本 visualize_segmentation.py ---
+# 要扫描图片的目录（会递归找 *.jpg / *.png）。队友跑全量、你跑少量都改这里或 local。
+image_dirs:
+  - datasets/bdd100k_subset_500/images/val
+  - datasets/cityscapes/leftImg8bit/val
+  - datasets/acdc
+  - datasets/idd
+# 可视化结果输出目录
+vis_output_dir: runs/segmentation_openvino/demo
+# 随机采样张数与种子（你这边跑少量，把 num_samples 改小即可）
+num_samples: 20
+seed: 0
+# road 真值标注目录（用于算 IoU）；没有标注就保持 null
+gt_dir: null
+
+# --- 评测脚本 segmentation_eval.py ---
+# 每个数据集：name + split 列表文件 + 图片根目录
+eval_datasets:
+  - name: bdd100k
+    split_file: data/splits/bdd_selected.txt
+    image_dir: datasets/bdd100k_subset_500/images/val
+  - name: cityscapes
+    split_file: data/splits/cityscapes_selected.txt
+    image_dir: datasets/cityscapes
+  - name: acdc
+    split_file: data/splits/acdc_selected.txt
+    image_dir: datasets/acdc
+  - name: idd
+    split_file: data/splits/idd_lite_selected.txt
+    image_dir: datasets/idd
+# 评测结果输出目录
+eval_output_dir: runs/segmentation_eval
+
+# --- 模型（两个脚本共用）---
+model_xml: models/openvino/road-segmentation-adas-0001/road-segmentation-adas-0001.xml

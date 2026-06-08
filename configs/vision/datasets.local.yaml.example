@@ -1,0 +1,17 @@
+# 个人本地路径覆盖示例。
+# 用法：复制本文件为 datasets.local.yaml（去掉 .example），改成你自己的路径。
+# 只需写要覆盖的项，其余沿用 datasets.yaml。datasets.local.yaml 不会进 git。
+#
+# 例 1：你这边只跑少量数据
+# num_samples: 5
+# image_dirs:
+#   - D:/my_small_samples
+#
+# 例 2：队友的数据集在别的盘
+# image_dirs:
+#   - E:/datasets/bdd100k/images/val
+#   - E:/datasets/cityscapes/leftImg8bit/val
+# eval_datasets:
+#   - name: bdd100k
+#     split_file: data/splits/bdd_selected.txt
+#     image_dir: E:/datasets/bdd100k/images/val
