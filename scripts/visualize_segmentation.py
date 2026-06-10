@@ -1,11 +1,13 @@
 """
 语义分割结果可视化脚本
 生成原始图片、标注mask和模型预测结果的对比图
+添加时间统计功能，用于对比不同模型的速度差异
 """
 
 import cv2
 import numpy as np
 import argparse
+import time
 from openvino import Core
 from pathlib import Path
 
@@ -58,7 +60,15 @@ def main():
     img_files = list(images_dir.glob("*.jpg"))[:num_images]
     print(f"找到 {len(img_files)} 张图片")
     
+    # 时间统计变量
+    total_inference_time = 0.0
+    total_processing_time = 0.0
+    inference_times = []
+    
     for i, img_path in enumerate(img_files):
+        # 记录处理开始时间
+        process_start = time.time()
+        
         # 读取图片
         img = cv2.imread(str(img_path))
         img_original = img.copy()
@@ -67,9 +77,16 @@ def main():
         img_input = cv2.resize(img, (896, 512))
         input_tensor = np.expand_dims(img_input.transpose(2, 0, 1).astype(np.float32), 0)
         
-        # 推理
+        # 推理（记录推理时间）
+        inference_start = time.time()
         result = model([input_tensor])[0]
         pred_mask = np.argmax(result, axis=1)[0]
+        inference_end = time.time()
+        
+        # 计算推理时间
+        inference_time = inference_end - inference_start
+        inference_times.append(inference_time)
+        total_inference_time += inference_time
         
         # 读取标注
         seg_file = seg_labels_dir / (img_path.stem + "_drivable_id.png")
@@ -86,7 +103,31 @@ def main():
         # 保存结果
         output_path = output_dir / f"segmentation_result_{i:02d}.jpg"
         cv2.imwrite(str(output_path), vis_img)
-        print(f"已保存: {output_path}")
+        
+        # 计算处理时间
+        process_end = time.time()
+        processing_time = process_end - process_start
+        total_processing_time += processing_time
+        
+        print(f"已保存: {output_path} (推理时间: {inference_time*1000:.2f}ms)")
+    
+    # 计算统计信息
+    if len(img_files) > 0:
+        avg_inference_time = total_inference_time / len(img_files)
+        avg_processing_time = total_processing_time / len(img_files)
+        min_inference_time = min(inference_times)
+        max_inference_time = max(inference_times)
+        fps = len(img_files) / total_inference_time
+        
+        print(f"\n{'='*60}")
+        print(f"语义分割时间统计（共 {len(img_files)} 张图片）")
+        print(f"{'='*60}")
+        print(f"平均推理时间: {avg_inference_time*1000:.2f} ms")
+        print(f"最小推理时间: {min_inference_time*1000:.2f} ms")
+        print(f"最大推理时间: {max_inference_time*1000:.2f} ms")
+        print(f"平均处理时间: {avg_processing_time*1000:.2f} ms")
+        print(f"推理FPS: {fps:.2f}")
+        print(f"{'='*60}")
     
     print(f"\n可视化结果已保存至: {output_dir}")
 
