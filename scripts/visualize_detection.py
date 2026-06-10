@@ -5,10 +5,15 @@
 
 import cv2
 import numpy as np
+import argparse
 from openvino import Core
 from pathlib import Path
 
-ROOT = Path("/Users/vincent/Desktop/Intel-Cup-2026")
+# 使用相对路径（基于脚本位置推断项目根目录）
+SCRIPT_DIR = Path(__file__).resolve().parent
+ROOT = SCRIPT_DIR.parent
+
+# 默认路径
 DATA_DIR = ROOT / "datasets" / "bdd100k"
 IMAGES_DIR = DATA_DIR / "images" / "100k" / "val"
 OUTPUT_DIR = ROOT / "runs" / "detection_visualization_threat"
@@ -37,11 +42,29 @@ THREAT_COLOR_MAP = {
 }
 
 def main():
+    # 解析命令行参数
+    parser = argparse.ArgumentParser(description="目标检测可视化脚本")
+    parser.add_argument("--dataset", type=str, default=str(IMAGES_DIR), 
+                        help="图片目录路径（默认: datasets/bdd100k/images/100k/val）")
+    parser.add_argument("--output", type=str, default=str(OUTPUT_DIR),
+                        help="输出目录路径（默认: runs/detection_visualization_threat）")
+    parser.add_argument("--model", type=str, default=str(ROOT / "models" / "yolo26n_openvino_model" / "yolo26n.xml"),
+                        help="模型文件路径")
+    parser.add_argument("--num-images", type=int, default=15, help="处理图片数量")
+    parser.add_argument("--conf-threshold", type=float, default=0.15, help="置信度阈值")
+    args = parser.parse_args()
+    
+    # 使用命令行参数或默认值
+    images_dir = Path(args.dataset)
+    output_dir = Path(args.output)
+    model_path = Path(args.model)
+    num_images = args.num_images
+    conf_threshold = args.conf_threshold
+    
     # 创建输出目录
-    OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
+    output_dir.mkdir(parents=True, exist_ok=True)
     
     # 加载 OpenVINO yolo26n 模型
-    model_path = ROOT / "models" / "yolo26n_openvino_model" / "yolo26n.xml"
     core = Core()
     model = core.compile_model(str(model_path), "CPU")
     
@@ -54,10 +77,8 @@ def main():
     print(f"模型输入形状: {input_shape}")
     
     # 获取图片列表
-    img_files = list(IMAGES_DIR.glob("*.jpg"))[:15]  # 取前15张
-    
-    # 推理参数（提高置信度阈值减少错误识别）
-    conf_threshold = 0.15
+    img_files = list(images_dir.glob("*.jpg"))[:num_images]
+    print(f"找到 {len(img_files)} 张图片")
     
     for i, img_path in enumerate(img_files):
         # 读取图片
@@ -107,7 +128,7 @@ def main():
         vis_img = draw_detections(img.copy(), pred_boxes)
         
         # 保存结果
-        output_path = OUTPUT_DIR / f"detection_threat_{i:02d}.jpg"
+        output_path = output_dir / f"detection_threat_{i:02d}.jpg"
         cv2.imwrite(str(output_path), vis_img)
         
         # 打印详细信息
@@ -120,8 +141,8 @@ def main():
         for cls_name, count in cls_stats.items():
             print(f"  - {cls_name}: {count}个")
     
-    print(f"\n可视化结果已保存至: {OUTPUT_DIR}")
-    print(f"使用参数: 置信度阈值={conf_threshold}, 输入尺寸={input_w}x{input_h}")
+    print(f"\n可视化结果已保存至: {output_dir}")
+    print(f"使用参数: 置信度阈值={conf_threshold}, 输入尺寸={input_w}x{input_h}, 图片数量={num_images}")
 
 def draw_detections(img, pred_boxes):
     """绘制检测框（只显示威胁类别）"""

@@ -7,11 +7,16 @@ import os
 import json
 import cv2
 import numpy as np
+import argparse
 from pathlib import Path
 from ultralytics import YOLO
 from openvino import Core
 
-ROOT = Path("/Users/vincent/Desktop/Intel-Cup-2026")
+# 使用相对路径（基于脚本位置推断项目根目录）
+SCRIPT_DIR = Path(__file__).resolve().parent
+ROOT = SCRIPT_DIR.parent
+
+# 默认路径
 DATA_DIR = ROOT / "datasets" / "bdd100k"
 LABELS_DIR = DATA_DIR / "labels" / "100k" / "val"
 IMAGES_DIR = DATA_DIR / "images" / "100k" / "val"
@@ -222,6 +227,20 @@ def evaluate_segmentation(model, seg_labels, num_samples=50):
     }
 
 def main():
+    # 解析命令行参数
+    parser = argparse.ArgumentParser(description="BDD100K 模型准确率评估")
+    parser.add_argument("--dataset", type=str, default=str(DATA_DIR), 
+                        help="数据集根目录路径")
+    parser.add_argument("--det-samples", type=int, default=100, help="目标检测评估样本数")
+    parser.add_argument("--seg-samples", type=int, default=50, help="语义分割评估样本数")
+    args = parser.parse_args()
+    
+    # 更新全局路径
+    global DATA_DIR, LABELS_DIR, IMAGES_DIR
+    DATA_DIR = Path(args.dataset)
+    LABELS_DIR = DATA_DIR / "labels" / "100k" / "val"
+    IMAGES_DIR = DATA_DIR / "images" / "100k" / "val"
+    
     print("="*60)
     print("BDD100K 模型准确率评估")
     print("="*60)
@@ -233,16 +252,16 @@ def main():
     print(f"加载目标检测标注: {len(det_labels)} 张图片")
     print(f"加载语义分割标注: {len(seg_labels)} 张图片")
     
-    # 加载模型
+    # 加载模型（使用相对路径）
     print("\n加载模型...")
-    det_model = YOLO("yolo26n.pt")
-    seg_model = Core().compile_model("models/openvino/road-segmentation-adas-0001/road-segmentation-adas-0001.xml", "CPU")
+    det_model = YOLO(str(ROOT / "yolo26n.pt"))
+    seg_model = Core().compile_model(str(ROOT / "models" / "openvino" / "road-segmentation-adas-0001" / "road-segmentation-adas-0001.xml"), "CPU")
     
     # 评估目标检测
-    det_results = evaluate_detection(det_model, det_labels, num_samples=100)
+    det_results = evaluate_detection(det_model, det_labels, num_samples=args.det_samples)
     
     # 评估语义分割
-    seg_results = evaluate_segmentation(seg_model, seg_labels, num_samples=50)
+    seg_results = evaluate_segmentation(seg_model, seg_labels, num_samples=args.seg_samples)
     
     # 保存结果
     output_dir = ROOT / "runs" / "accuracy_eval"
