@@ -5,10 +5,15 @@
 
 import cv2
 import numpy as np
+import argparse
 from openvino import Core
 from pathlib import Path
 
-ROOT = Path("/Users/vincent/Desktop/Intel-Cup-2026")
+# 使用相对路径（基于脚本位置推断项目根目录）
+SCRIPT_DIR = Path(__file__).resolve().parent
+ROOT = SCRIPT_DIR.parent
+
+# 默认路径
 DATA_DIR = ROOT / "datasets" / "bdd100k"
 IMAGES_DIR = DATA_DIR / "images" / "100k" / "val"
 SEG_LABELS_DIR = DATA_DIR / "labels" / "bdd100k_drivable_maps" / "labels" / "val"
@@ -22,16 +27,36 @@ COLOR_MAP = {
 }
 
 def main():
-    # 创建输出目录
-    OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
+    # 解析命令行参数
+    parser = argparse.ArgumentParser(description="语义分割可视化脚本")
+    parser.add_argument("--dataset", type=str, default=str(DATA_DIR), 
+                        help="数据集根目录路径（默认: datasets/bdd100k）")
+    parser.add_argument("--output", type=str, default=str(OUTPUT_DIR),
+                        help="输出目录路径（默认: runs/segmentation_visualization）")
+    parser.add_argument("--num-images", type=int, default=10, help="处理图片数量")
+    args = parser.parse_args()
     
-    # 加载模型
+    # 使用命令行参数或默认值
+    data_dir = Path(args.dataset)
+    output_dir = Path(args.output)
+    num_images = args.num_images
+    
+    # 更新路径
+    images_dir = data_dir / "images" / "100k" / "val"
+    seg_labels_dir = data_dir / "labels" / "bdd100k_drivable_maps" / "labels" / "val"
+    
+    # 创建输出目录
+    output_dir.mkdir(parents=True, exist_ok=True)
+    
+    # 加载模型（使用相对路径）
     model_path = ROOT / "models" / "openvino" / "road-segmentation-adas-0001" / "road-segmentation-adas-0001.xml"
     core = Core()
     model = core.compile_model(str(model_path), "CPU")
+    print(f"已加载模型: {model_path}")
     
     # 获取图片列表
-    img_files = list(IMAGES_DIR.glob("*.jpg"))[:10]  # 取前10张
+    img_files = list(images_dir.glob("*.jpg"))[:num_images]
+    print(f"找到 {len(img_files)} 张图片")
     
     for i, img_path in enumerate(img_files):
         # 读取图片
@@ -47,22 +72,23 @@ def main():
         pred_mask = np.argmax(result, axis=1)[0]
         
         # 读取标注
-        seg_file = SEG_LABELS_DIR / (img_path.stem + "_drivable_id.png")
+        seg_file = seg_labels_dir / (img_path.stem + "_drivable_id.png")
         if seg_file.exists():
             gt_mask = cv2.imread(str(seg_file), cv2.IMREAD_GRAYSCALE)
             gt_mask = cv2.resize(gt_mask, (896, 512), interpolation=cv2.INTER_NEAREST)
         else:
             gt_mask = np.zeros((512, 896), dtype=np.uint8)
+            print(f"警告: 未找到标注文件 {seg_file}")
         
         # 创建可视化图片
         vis_img = create_visualization(img_input, gt_mask, pred_mask)
         
         # 保存结果
-        output_path = OUTPUT_DIR / f"segmentation_result_{i:02d}.jpg"
+        output_path = output_dir / f"segmentation_result_{i:02d}.jpg"
         cv2.imwrite(str(output_path), vis_img)
         print(f"已保存: {output_path}")
     
-    print(f"\n可视化结果已保存至: {OUTPUT_DIR}")
+    print(f"\n可视化结果已保存至: {output_dir}")
 
 def create_visualization(img, gt_mask, pred_mask):
     """创建可视化对比图"""
