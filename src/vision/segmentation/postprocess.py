@@ -60,3 +60,35 @@ def run_openvino_adas_forward(
     if logits.ndim != 4 or logits.shape[0] != 1:
         raise ValueError(f"期望输出 1xCxHxW，实际 {logits.shape}")
     return logits[0]
+
+
+# ImageNet 归一化常数（PIDNet 等 Cityscapes 预训练模型的标准预处理）。
+_IMAGENET_MEAN = np.array([0.485, 0.456, 0.406], dtype=np.float32)
+_IMAGENET_STD = np.array([0.229, 0.224, 0.225], dtype=np.float32)
+
+
+def run_openvino_pidnet_forward(
+    compiled_model: Any,
+    input_name: str,
+    image_bgr: np.ndarray,
+    input_height: int,
+    input_width: int,
+) -> np.ndarray:
+    """PIDNet 前向：BGR→RGB、缩放、/255、ImageNet 归一化，返回 CHW logits。
+
+    预处理已用真实图像实测确认（见 scripts/vision/03_test_pidnet_openvino 流程）。
+    """
+    resized = cv2.resize(
+        image_bgr,
+        (int(input_width), int(input_height)),
+        interpolation=cv2.INTER_LINEAR,
+    )
+    rgb = cv2.cvtColor(resized, cv2.COLOR_BGR2RGB).astype(np.float32) / 255.0
+    normalized = (rgb - _IMAGENET_MEAN) / _IMAGENET_STD
+    tensor = normalized.transpose(2, 0, 1)[None].astype(np.float32)
+    outputs = compiled_model({input_name: tensor})
+    out_tensor = next(iter(outputs.values()))
+    logits = np.array(out_tensor)
+    if logits.ndim != 4 or logits.shape[0] != 1:
+        raise ValueError(f"期望输出 1xCxHxW，实际 {logits.shape}")
+    return logits[0]

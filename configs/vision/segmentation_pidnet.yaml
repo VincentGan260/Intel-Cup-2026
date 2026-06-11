@@ -1,0 +1,65 @@
+# OpenVINO 道路分割：PIDNet-S（Cityscapes 19 类，实时分割模型）
+# 与 segmentation_openvino.yaml（road-segmentation-adas-0001）并列，可 A/B 对比。
+
+# 选择后端：让 build_segmenter_from_config 走 PIDNet 分支。
+backend: pidnet_openvino
+
+# 输入图像：相对项目根目录的路径，或 http/https URL。
+source: data/sample/segmentation_test_data/frankfurt_street.png
+
+model:
+  # PIDNet-S 的 OpenVINO IR（由 ONNX 转换而来，见 scripts/vision/03_test_pidnet_openvino.py）。
+  xml_path: models/openvino/pidnet-s/pidnet-s.xml
+
+  # 该 ONNX 导出的固定输入尺寸为 1024x1024。
+  input_height: 1024
+  input_width: 1024
+
+  # Cityscapes 19 类（前 11 类）：
+  #   0 road  1 sidewalk  2 building  3 wall  4 fence  5 pole
+  #   6 traffic light  7 traffic sign  8 vegetation  9 terrain  10 sky ...
+  class_names:
+    - road
+    - sidewalk
+    - building
+    - wall
+    - fence
+    - pole
+    - traffic_light
+    - traffic_sign
+    - vegetation
+    - terrain
+    - sky
+    - person
+    - rider
+    - car
+    - truck
+    - bus
+    - train
+    - motorcycle
+    - bicycle
+
+  # 可行驶区域取哪一类：Cityscapes 中 road=0。
+  road_class_index: 0
+
+openvino:
+  # 推理设备：CPU、GPU、NPU 等。端侧实时建议优先试 GPU（核显）。
+  device: CPU
+
+visualization:
+  alpha: 0.45
+  # 仅可行驶区域单色叠加用绿色；多类上色见 03 脚本里的 Cityscapes 调色板。
+  drivable_color_bgr: [0, 200, 0]
+
+output:
+  overlay_path: runs/segmentation_pidnet/demo/overlay.jpg
+
+# =============================================================================
+# 模型获取（PIDNet 不在 OpenVINO 模型库，需手动下载一次）：
+# 方式 A（推荐，已验证）：从 HuggingFace 下载 MIT 许可的 PIDNet-S ONNX
+#   https://huggingface.co/oenpu/PIDNet_S_enlight_friendly_onnx
+#   下载 PIDNet_S_enlight_friendly.onnx 放到 models/openvino/pidnet-s/PIDNet_S.onnx
+#   再用 OpenVINO 转 IR：
+#     python -c "import openvino as ov; ov.save_model(ov.Core().read_model('models/openvino/pidnet-s/PIDNet_S.onnx'),'models/openvino/pidnet-s/pidnet-s.xml',compress_to_fp16=False)"
+# 方式 B：从官方仓库 https://github.com/XuJiacong/PIDNet 下载 PyTorch 权重自行导出 ONNX。
+# =============================================================================
