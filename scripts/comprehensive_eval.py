@@ -10,7 +10,7 @@ import psutil
 import statistics
 import json
 
-ROOT = Path("/Users/vincent/Desktop/Intel-Cup-2026")
+ROOT = Path(__file__).resolve().parents[1]  # 项目根目录（原硬编码 Mac 路径已改为可移植）
 SPLITS_DIR = ROOT / "data" / "splits"
 DATASETS_DIR = ROOT / "datasets"
 OUTPUT_DIR = ROOT / "runs" / "comprehensive_eval"

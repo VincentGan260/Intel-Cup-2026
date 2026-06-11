@@ -1,6 +1,6 @@
 from pathlib import Path
 from ultralytics import YOLO
-ROOT = Path("/Users/vincent/Desktop/Intel-Cup-2026")
+ROOT = Path(__file__).resolve().parents[1]  # 项目根目录（原硬编码 Mac 路径已改为可移植）
 MODEL_PATH = ROOT / "yolo26n.pt"
 IMAGE_DIR = ROOT / "datasets/bdd100k_subset_500/images/val"
 OUTPUT_DIR = ROOT / "runs/single_test"

@@ -1,0 +1,90 @@
+# =============================================================================
+# 视觉测试统一配置（精度 + 延迟）
+# -----------------------------------------------------------------------------
+# 所有路径、采样数、标签约定都放这里，代码里不写死。
+# 机器路径不同：复制本文件为 eval.local.yaml，只写你要改的项（支持嵌套覆盖，
+#   不进 git，互不冲突）。命令行参数优先级最高。
+# 相对路径以「项目根目录」为基准；也可写绝对路径（如 D:/... 、E:/...）。
+#
+# 想知道哪些路径还没准备好：跑
+#   conda run -n intel python scripts/vision/check_eval_paths.py
+# 它会逐项 ✓/✗ 告诉你缺什么。
+# =============================================================================
+
+# -------------------------- 检测精度评测 --------------------------
+detection:
+  # ↓↓↓ 改成你本地 BDD 图片和逐图 JSON 标注的目录 ↓↓↓
+  images_dir: datasets/bdd100k/images/100k/val
+  labels_dir: datasets/bdd100k/labels/100k/val      # 逐图 *.json（旧格式）
+  num_samples: 200                                  # 评多少张；先小后大
+  iou_thr: 0.5
+  conf_operating_point: 0.25                        # 报 P/R/F1 的部署置信度
+  # 障碍物 = 这些类（类别无关匹配，但只算这些）
+  obstacle_classes: [car, bus, truck, pedestrian, rider, bike, motor]
+  # 这些类排除（不是障碍物，避免冤枉成漏检/误报）
+  exclude_classes:  [traffic sign, traffic light, train]
+
+# -------------------------- 分割精度评测（road IoU）--------------------------
+segmentation:
+  num_samples: 200
+  input_hw: [512, 896]        # road-adas 输入；PIDNet 由各自模型决定，脚本会处理
+  # 每个数据集一个适配器。最易错的是 road_value / ignore_value，下面已按惯例填好，
+  # 但请按你实际下载的标注「文件后缀」确认（labelIds 还是 trainIds，二者 road 值不同）。
+  datasets:
+    - name: cityscapes
+      images_dir: datasets/cityscapes/leftImg8bit/val
+      labels_dir: datasets/cityscapes/gtFine/val
+      # Cityscapes：*_gtFine_labelIds.png → road=7；若是 *_gtFine_labelTrainIds.png → road=0
+      label_suffix: _gtFine_labelIds.png
+      image_suffix: _leftImg8bit.png
+      road_value: 7
+      ignore_value: 255
+      recursive: true          # gtFine/val 下还有城市子目录
+    # --- 下面两个先留模板，确认本地有再启用（road_value 我会再核对）---
+    # - name: acdc
+    #   images_dir: datasets/acdc/rgb_anon
+    #   labels_dir: datasets/acdc/gt
+    #   label_suffix: _gt_labelIds.png      # ACDC 同 Cityscapes 惯例 road=7
+    #   image_suffix: _rgb_anon.png
+    #   road_value: 7
+    #   ignore_value: 255
+    #   recursive: true
+    # - name: idd
+    #   images_dir: datasets/idd/leftImg8bit/val
+    #   labels_dir: datasets/idd/gtFine/val
+    #   label_suffix: _gtFine_labellevel3Ids.png   # IDD 自有体系，road 值待我核对
+    #   image_suffix: _leftImg8bit.jpg
+    #   road_value: 0
+    #   ignore_value: 255
+    #   recursive: true
+
+# -------------------------- 模型（各精度路径）--------------------------
+models:
+  detection:
+    pytorch: yolo26n.pt                                       # 一致性抽查用
+    fp32:    models/yolo26n_openvino_model/yolo26n.xml        # 精度基线
+    fp16:    models/yolo26n_fp16_openvino_model/yolo26n.xml   # FP16 转换产出
+    int8:    models/yolo26n_int8_openvino_model/yolo26n.xml   # 量化后产出（暂不存在）
+  segmentation:
+    pidnet_fp32:   models/openvino/pidnet-s/pidnet-s.xml
+    pidnet_fp16:   models/openvino/pidnet-s-fp16/pidnet-s.xml      # FP16 转换产出
+    pidnet_int8:   models/openvino/pidnet-s-int8/pidnet-s.xml      # 量化后产出（暂不存在）
+    road_adas:      models/openvino/road-segmentation-adas-0001/road-segmentation-adas-0001.xml
+    road_adas_fp16: models/openvino/road-adas-fp16/road-segmentation-adas-0001.xml  # FP16 转换产出
+
+# -------------------------- 量化（INT8，开发机就能做）--------------------------
+quantization:
+  calib_images_dir: datasets/bdd100k/images/100k/val   # 校准图，无需标注
+  calib_count: 200
+
+# -------------------------- 延迟（必须上 DK-2500 跑）--------------------------
+latency:
+  devices: [CPU, GPU, NPU]
+  warmup: 20
+  iters: 200
+  realtime_floor_fps: 10
+
+# -------------------------- 输出 --------------------------
+output:
+  accuracy_dir: runs/accuracy_eval
+  latency_dir:  runs/latency_eval

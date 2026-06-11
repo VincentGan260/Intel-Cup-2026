@@ -1,7 +1,7 @@
 from pathlib import Path
 import shutil
 import random
-ROOT = Path("/Users/vincent/Desktop/Intel-Cup-2026")
+ROOT = Path(__file__).resolve().parents[1]  # 项目根目录（原硬编码 Mac 路径已改为可移植）
 SRC_IMG_DIR = ROOT / "datasets/bdd100k/test"
 DST_IMG_DIR = ROOT / "datasets/bdd100k_subset_500/images/val"
 NUM_IMAGES = 500

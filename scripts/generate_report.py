@@ -6,7 +6,7 @@ from pathlib import Path
 import json
 import csv
 
-ROOT = Path("/Users/vincent/Desktop/Intel-Cup-2026")
+ROOT = Path(__file__).resolve().parents[1]  # 项目根目录（原硬编码 Mac 路径已改为可移植）
 OUTPUT_DIR = ROOT / "runs" / "final_report"
 
 OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
