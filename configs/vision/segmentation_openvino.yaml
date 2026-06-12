@@ -27,7 +27,8 @@ model:
 
 openvino:
   # 推理设备：CPU、GPU、NPU 等，以本机 OpenVINO 支持为准。
-  device: CPU
+  # AUTO 模式会自动选择最佳可用设备
+  device: AUTO
 
 visualization:
   # 叠加透明度，0~1，越大颜色越实。

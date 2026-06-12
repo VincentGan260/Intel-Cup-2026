@@ -1,0 +1,33 @@
+# ADAS 语义分割 FP16 优化配置
+# 使用 FP16 模型获得更高帧率
+
+source: https://ultralytics.com/images/bus.jpg
+
+model:
+  # 使用 FP16 优化版本的模型
+  xml_path: models/openvino/road-adas-fp16/road-segmentation-adas-0001.xml
+  input_height: 512
+  input_width: 896
+  class_names:
+    - background
+    - road
+    - curb
+    - mark
+  road_class_index: 1
+
+openvino:
+  # 使用 AUTO 模式自动选择最佳设备
+  device: AUTO
+  # FP16 推理配置
+  inference_precision: FP16
+
+visualization:
+  alpha: 0.45
+  colors_bgr:
+    - [0, 0, 0]
+    - [0, 200, 0]
+    - [0, 128, 255]
+    - [200, 200, 200]
+
+output:
+  overlay_path: runs/vision/segmentation_adas_fp16/demo/overlay.jpg
