@@ -4,12 +4,14 @@
 1. 移除镜像翻转
 2. 优化 CPU 性能
 3. 提高帧率
+4. 支持 AUTO 模式自动选择最佳设备
 """
 import time
 import cv2
 import numpy as np
 from pathlib import Path
 import openvino as ov
+import yaml
 from src.vision.common.types import SegmentationResult
 
 PROJECT_ROOT = Path(__file__).resolve().parent
@@ -18,12 +20,12 @@ PROJECT_ROOT = Path(__file__).resolve().parent
 class FastAdasSegmenter:
     """优化版 ADAS 分割器"""
     
-    def __init__(self, xml_path, road_class=1):
+    def __init__(self, xml_path, road_class=1, device="AUTO"):
         self.core = ov.Core()
         self.model = self.core.read_model(str(xml_path))
         
-        # 使用默认配置
-        self.compiled_model = self.core.compile_model(self.model, "CPU")
+        # 使用指定设备（AUTO 模式自动选择最佳可用设备）
+        self.compiled_model = self.core.compile_model(self.model, device)
         self.input_layer = self.compiled_model.input(0)
         self.output_layer = self.compiled_model.output(0)
         
@@ -32,6 +34,7 @@ class FastAdasSegmenter:
         self.input_height = input_shape[2]
         self.input_width = input_shape[3]
         self.road_class = road_class
+        self.device = device
     
     def infer(self, frame):
         # 预处理：缩放并转换为模型输入格式
@@ -61,18 +64,28 @@ class FastAdasSegmenter:
 
 
 def main():
+    # 读取配置文件
+    config_path = PROJECT_ROOT / "configs/vision/segmentation_openvino.yaml"
+    with open(config_path, 'r') as f:
+        config = yaml.safe_load(f)
+    
+    # 获取设备配置（默认 AUTO）
+    device = config.get('openvino', {}).get('device', 'AUTO')
+    
     # 使用 FP16 模型（如果可用）
     model_path = PROJECT_ROOT / "models/openvino/road-adas-fp16/road-segmentation-adas-0001.xml"
     if not model_path.exists():
-        model_path = PROJECT_ROOT / "models/openvino/road-segmentation-adas-0001/road-segmentation-adas-0001.xml"
+        model_path = PROJECT_ROOT / config['model']['xml_path']
     
     print(f"📦 加载模型: {model_path}")
+    print(f"🔧 推理设备: {device}")
     
-    # 创建分割器
-    segmenter = FastAdasSegmenter(model_path, road_class=1)
+    # 创建分割器（使用 AUTO 模式）
+    segmenter = FastAdasSegmenter(model_path, road_class=1, device=device)
     
     print(f"✅ 分割器初始化完成")
     print(f"📐 模型输入: {segmenter.input_width}x{segmenter.input_height}")
+    print(f"🖥️  使用设备: {segmenter.device}")
     
     # 打开摄像头
     cap = cv2.VideoCapture(0)
