@@ -31,32 +31,42 @@ segmentation:
   # 每个数据集一个适配器。最易错的是 road_value / ignore_value，下面已按惯例填好，
   # 但请按你实际下载的标注「文件后缀」确认（labelIds 还是 trainIds，二者 road 值不同）。
   datasets:
+    - name: bdd100k
+      images_dir: datasets/bdd100k/images/100k/val
+      labels_dir: datasets/bdd100k/labels/bdd100k_drivable_maps/labels/val
+      # BDD100K drivable_maps 标注格式：road=1 (可行驶), 2 (可行驶但需小心), 0 (不可行驶)
+      label_suffix: _drivable_id.png
+      image_suffix: .jpg
+      road_value: 1
+      ignore_value: 255
+      recursive: false         # bdd100k 没有子目录
+    - name: idd
+      images_dir: datasets/idd20k_lite/leftImg8bit/val
+      labels_dir: datasets/idd20k_lite/gtFine/val
+      # IDD 标注格式：*_image.jpg → *_label.png，road=0（trainIds 格式）
+      label_suffix: _label.png
+      image_suffix: _image.jpg
+      road_value: 0
+      ignore_value: 255
+      recursive: true          # idd 有子目录
+    - name: acdc
+      images_dir: datasets/acdc/rgb_anon_trainvaltest/rgb_anon/fog/val
+      labels_dir: datasets/acdc/gt_trainval/gt/fog/val
+      # ACDC _gt_invIds.png 是二值标注：0=背景，1=道路
+      label_suffix: _gt_invIds.png
+      image_suffix: _rgb_anon.png
+      road_value: 1
+      ignore_value: 255
+      recursive: true          # acdc 有子目录（视频序列）
     - name: cityscapes
-      images_dir: datasets/cityscapes/leftImg8bit/val
-      labels_dir: datasets/cityscapes/gtFine/val
-      # Cityscapes：*_gtFine_labelIds.png → road=7；若是 *_gtFine_labelTrainIds.png → road=0
+      images_dir: datasets/cityscapes/leftImg8bit_trainvaltest/leftImg8bit/val
+      labels_dir: datasets/cityscapes/gtFine_trainvaltest/gtFine/val
+      # Cityscapes 标注格式：*_leftImg8bit.png → *_gtFine_labelIds.png，road=7（labelIds 格式）
       label_suffix: _gtFine_labelIds.png
       image_suffix: _leftImg8bit.png
       road_value: 7
       ignore_value: 255
-      recursive: true          # gtFine/val 下还有城市子目录
-    # --- 下面两个先留模板，确认本地有再启用（road_value 我会再核对）---
-    # - name: acdc
-    #   images_dir: datasets/acdc/rgb_anon
-    #   labels_dir: datasets/acdc/gt
-    #   label_suffix: _gt_labelIds.png      # ACDC 同 Cityscapes 惯例 road=7
-    #   image_suffix: _rgb_anon.png
-    #   road_value: 7
-    #   ignore_value: 255
-    #   recursive: true
-    # - name: idd
-    #   images_dir: datasets/idd/leftImg8bit/val
-    #   labels_dir: datasets/idd/gtFine/val
-    #   label_suffix: _gtFine_labellevel3Ids.png   # IDD 自有体系，road 值待我核对
-    #   image_suffix: _leftImg8bit.jpg
-    #   road_value: 0
-    #   ignore_value: 255
-    #   recursive: true
+      recursive: true          # cityscapes 有子目录
 
 # -------------------------- 模型（各精度路径）--------------------------
 models:
