@@ -1,0 +1,52 @@
+# ============================================================
+#  传感器端口配置
+# ============================================================
+#  区分 windows（开发调试）和 dk2500（部署运行）两个 profile。
+#  通过 config.yaml 中的 system.platform 字段选择。
+
+windows:
+  gps:
+    port: "COM5"
+    baudrate: 9600
+    timeout: 1.0
+
+  imu:
+    port: "COM8"
+    baudrate: 115200
+    timeout: 0.1
+
+  radar:
+    port: "COM7"
+    baudrate: 115200
+    timeout: 0.5
+
+  motor:
+    i2c_bus: 3
+    driver_address: "0x5A"
+
+dk2500:
+  gps:
+    port: "/dev/ttyS5"
+    baudrate: 9600
+    timeout: 1.0
+
+  imu:
+    port: "/dev/ttyUSB0"
+    baudrate: 115200
+    timeout: 0.1
+
+  radar:
+    port: "/dev/ttyUSB2"
+    baudrate: 115200
+    timeout: 0.5
+
+  motor:
+    i2c_bus: 1
+    driver_address: "0x5A"
+
+# 摄像头配置（与端口无关，放在这里统一管理）
+camera:
+  device_id: 0         # 通常 0 为内置摄像头，外接 USB 摄像头可能为 1
+  width: 640
+  height: 480
+  fps: 30

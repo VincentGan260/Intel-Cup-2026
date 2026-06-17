@@ -1,0 +1,42 @@
+# ============================================================
+#  模型路径配置
+# ============================================================
+#  统一管理所有模型的路径，避免在各脚本中写死。
+#  路径均为相对项目根目录。
+
+# — 目标检测（YOLOv26） —
+detector:
+  # 目前使用 OpenVINO 模型
+  backend: openvino
+  model_path: models/yolo26n_openvino_model
+  xml_path: models/yolo26n_openvino_model/yolo26n.xml
+  bin_path: models/yolo26n_openvino_model/yolo26n.bin
+
+  # 如果用 Ultralytics .pt 权重
+  pt_path: yolo26n.pt
+
+  # 推理参数
+  confidence: 0.25
+  image_size: 640
+  device: AUTO
+
+  # 对应检测配置
+  config: configs/vision/detection.yaml
+
+# — 语义分割（ADAS road-segmentation） —
+segmenter:
+  backend: road_adas_openvino  # 可选: road_adas_openvino / pidnet_openvino / pidnet_pytorch / fast_adas
+
+  # FP16 模型（性能更优）
+  xml_path: models/openvino/road-adas-fp16/road-segmentation-adas-0001.xml
+  bin_path: models/openvino/road-adas-fp16/road-segmentation-adas-0001.bin
+
+  # FP32 备选
+  xml_path_fp32: models/openvino/road-segmentation-adas-0001/road-segmentation-adas-0001.xml
+
+  # 推理参数
+  device: AUTO
+  road_class_index: 1
+
+  # 对应分割配置
+  config: configs/vision/segmentation_openvino.yaml

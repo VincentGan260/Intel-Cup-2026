@@ -1,0 +1,60 @@
+# ============================================================
+#  风险融合参数
+# ============================================================
+#  综合风险 R = w1 * R_obs + w2 * R_dist + w3 * R_pose + w4 * R_speed
+#  所有风险项归一化到 [0, 1]。
+#  后续通过真实骑行实验数据标定。
+
+# — 风险融合权重（和为 1，代码内部会再归一化） —
+risk_weights:
+  obs: 0.30    # 视觉障碍物风险
+  dist: 0.35   # 距离 / TTC 风险
+  pose: 0.20   # 姿态稳定性风险
+  speed: 0.15  # 速度风险
+
+# — 风险等级阈值 —
+risk_thresholds:
+  low: 0.30    # R < 0.30 → 低风险（等级 0）
+  high: 0.70   # R >= 0.70 → 高风险（等级 2）
+  # 中间 [0.30, 0.70) → 中风险（等级 1）
+
+# — 自适应权重开关 —
+adaptive_weights:
+  enabled: true           # 开启后，模块无效时自动降低其权重
+  invalid_weight_factor: 0.3  # 模块无效时，权重衰减到 0.3 倍
+
+# ============================================================
+#  各风险项计算参数
+# ============================================================
+
+# — 距离风险 R_dist —
+distance:
+  ttc_safe_sec: 5.0   # TTC 超过此值视为安全，R_dist ≈ 0
+  ttc_critical_sec: 1.5  # TTC 低于此值视为高风险
+
+# — 速度风险 R_speed —
+speed:
+  max_speed_kmh: 25.0 # R_speed 归一化上限：R_speed = min(speed / max_speed_kmh, 1.0)
+  safe_kmh: 15.0      # 低于此速度视为安全速度
+  dangerous_kmh: 35.0 # 高于此速度视为危险速度
+
+# — 马达控制 —
+motor:
+  default_mode: mock           # real（真实硬件）/ mock（模拟）
+  min_interval_sec: 0.5        # 同一等级最小触发间隔
+  high_priority_interrupt: true  # 高风险可打断中风险
+  cooldown_sec: 2.0            # 触发后冷却时间
+
+  # 中风险震动参数（level=1）
+  medium:
+    effect_ids: [1]           # DRV2605 效果编号：1=strong click（短促脉冲）
+    pulse_duration_sec: 0.05
+    repeat_count: 3
+    pattern_name: short_pulse
+
+  # 高风险震动参数（level=2）
+  high:
+    effect_ids: [64]          # DRV2605 效果编号：64=buzz（持续震动）
+    pulse_duration_sec: 0.5
+    repeat_count: 1
+    pattern_name: continuous_strong
