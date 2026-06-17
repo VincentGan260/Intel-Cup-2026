@@ -82,7 +82,13 @@ def check_gps(ports: dict, loops: int) -> dict:
         reader.stop()
         return result
 
-    for _ in range(loops):
+    deadline = time.time() + 30  # 每模块总超时 30 秒
+    for i in range(loops):
+        if time.time() > deadline:
+            result["error"] = f"模块超时（已采样 {i}/{loops} 帧）"
+            break
+        sys.stdout.write(f"    [{i+1}/{loops}] ")
+        sys.stdout.flush()
         try:
             data = reader.read_once()
             if data.valid:
@@ -92,11 +98,15 @@ def check_gps(ports: dict, loops: int) -> dict:
                     "lat": round(data.latitude, 6),
                     "lon": round(data.longitude, 6),
                 }
+                sys.stdout.write("valid\n")
             else:
                 result["fail_count"] += 1
+                sys.stdout.write("-\n")
         except Exception as e:
             result["fail_count"] += 1
             result["error"] = str(e)
+            sys.stdout.write(f"ERR: {e}\n")
+        sys.stdout.flush()
         time.sleep(0.1)
 
     result["status"] = "OK" if result["valid_count"] > 0 else "FAILED"
@@ -133,7 +143,13 @@ def check_imu(ports: dict, loops: int) -> dict:
         reader.stop()
         return result
 
-    for _ in range(loops):
+    deadline = time.time() + 30  # 每模块总超时 30 秒
+    for i in range(loops):
+        if time.time() > deadline:
+            result["error"] = f"模块超时（已采样 {i}/{loops} 帧）"
+            break
+        sys.stdout.write(f"    [{i+1}/{loops}] ")
+        sys.stdout.flush()
         try:
             data = reader.read_once()
             if data.valid:
@@ -143,11 +159,15 @@ def check_imu(ports: dict, loops: int) -> dict:
                     "pitch": round(data.pitch, 2),
                     "yaw": round(data.yaw, 2),
                 }
+                sys.stdout.write("valid\n")
             else:
                 result["fail_count"] += 1
+                sys.stdout.write("-\n")
         except Exception as e:
             result["fail_count"] += 1
             result["error"] = str(e)
+            sys.stdout.write(f"ERR: {e}\n")
+        sys.stdout.flush()
         time.sleep(0.1)
 
     result["status"] = "OK" if result["valid_count"] > 0 else "FAILED"
@@ -184,7 +204,13 @@ def check_radar(ports: dict, loops: int) -> dict:
         reader.stop()
         return result
 
-    for _ in range(loops):
+    deadline = time.time() + 30  # 每模块总超时 30 秒
+    for i in range(loops):
+        if time.time() > deadline:
+            result["error"] = f"模块超时（已采样 {i}/{loops} 帧）"
+            break
+        sys.stdout.write(f"    [{i+1}/{loops}] ")
+        sys.stdout.flush()
         try:
             data = reader.read_once()
             if data.valid:
@@ -194,11 +220,15 @@ def check_radar(ports: dict, loops: int) -> dict:
                     "nearest_m": round(data.nearest_distance_m, 2),
                     "min_ttc": round(data.min_ttc, 2),
                 }
+                sys.stdout.write("valid\n")
             else:
                 result["fail_count"] += 1
+                sys.stdout.write("-\n")
         except Exception as e:
             result["fail_count"] += 1
             result["error"] = str(e)
+            sys.stdout.write(f"ERR: {e}\n")
+        sys.stdout.flush()
         time.sleep(0.1)
 
     result["status"] = "OK" if result["valid_count"] > 0 else "FAILED"
