@@ -69,12 +69,11 @@ def compute_pixel_acc(pred_mask: np.ndarray, gt_mask: np.ndarray, road_value: in
     return correct / np.sum(valid)
 
 
-def load_gt_mask(label_path: Path, label_suffix: str, image_name: str, image_suffix: str) -> np.ndarray:
-    """加载真值标注"""
+def load_gt_mask(label_path: Path, label_suffix: str, image_name: str, image_suffix: str, road_rgb: list = None) -> np.ndarray:
+    """加载真值标注，支持灰度和RGB颜色编码格式"""
     label_name = image_name.replace(image_suffix, label_suffix)
     label_path_full = label_path / label_name
     if not label_path_full.exists():
-        # 支持多层目录查找（如 ACDC: weather/train/video_seq/*.png）
         candidates = list(label_path.rglob(label_name))
         if candidates:
             label_path_full = candidates[0]
@@ -82,7 +81,15 @@ def load_gt_mask(label_path: Path, label_suffix: str, image_name: str, image_suf
     if not label_path_full.exists():
         return None
     
-    return cv2.imread(str(label_path_full), cv2.IMREAD_GRAYSCALE)
+    if road_rgb:
+        img = cv2.imread(str(label_path_full), cv2.IMREAD_COLOR)
+        if img is None:
+            return None
+        r, g, b = road_rgb
+        mask = (img[:,:,0] == b) & (img[:,:,1] == g) & (img[:,:,2] == r)
+        return mask.astype(np.uint8) * 255
+    else:
+        return cv2.imread(str(label_path_full), cv2.IMREAD_GRAYSCALE)
 
 
 def visualize_comparison(
@@ -227,7 +234,11 @@ def evaluate_model(model_xml: Path, model_name: str, dataset: dict, num_samples:
     if not images:
         return {"iou": 0.0, "pixel_acc": 0.0, "count": 0, "latencies": [], "mean_latency_ms": 0.0, "fps": 0.0}
     
-    road_value = dataset["road_value"]
+    road_rgb = dataset.get("road_rgb")
+    if road_rgb:
+        road_value = 255
+    else:
+        road_value = dataset["road_value"]
     ignore_value = dataset.get("ignore_value", 255)
     labels_dir = resolve(dataset["labels_dir"])
     
@@ -242,7 +253,7 @@ def evaluate_model(model_xml: Path, model_name: str, dataset: dict, num_samples:
         if image is None:
             continue
         
-        gt_mask = load_gt_mask(labels_dir, dataset["label_suffix"], img_name, dataset["image_suffix"])
+        gt_mask = load_gt_mask(labels_dir, dataset["label_suffix"], img_name, dataset["image_suffix"], road_rgb)
         if gt_mask is None:
             continue
         
@@ -375,7 +386,11 @@ def main() -> None:
                 print(f"{m['name']:<12} {0:>8} {0.0:>14} {0.0:>16} {0.0:>10} {0.0:>8}")
             continue
         
-        road_value = ds["road_value"]
+        road_rgb = ds.get("road_rgb")
+        if road_rgb:
+            road_value = 255
+        else:
+            road_value = ds["road_value"]
         ignore_value = ds.get("ignore_value", 255)
         labels_dir = resolve(ds["labels_dir"])
         
@@ -391,7 +406,7 @@ def main() -> None:
             if image is None:
                 continue
             
-            gt_mask = load_gt_mask(labels_dir, ds["label_suffix"], img_name, ds["image_suffix"])
+            gt_mask = load_gt_mask(labels_dir, ds["label_suffix"], img_name, ds["image_suffix"], road_rgb)
             if gt_mask is None:
                 continue
             
