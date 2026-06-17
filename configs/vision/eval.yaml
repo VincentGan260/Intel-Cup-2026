@@ -67,6 +67,16 @@ segmentation:
       road_value: 7
       ignore_value: 255
       recursive: true          # cityscapes 有子目录
+    - name: camvid
+      images_dir: datasets/CamVid/test
+      labels_dir: datasets/CamVid/test_labels
+      # CamVid 标注格式：*.png → *_L.png，RGB颜色编码，Road的RGB=(128,64,128)
+      label_suffix: _L.png
+      image_suffix: .png
+      road_rgb: [128, 64, 128]   # RGB格式的road颜色（注意：cv2读取是BGR，但这里按CSV写RGB）
+      road_value: 255             # RGB处理后road像素值为255
+      ignore_value: -1            # CamVid没有ignore区域，设为不存在的值
+      recursive: false
 
 # -------------------------- 模型（各精度路径）--------------------------
 models:
