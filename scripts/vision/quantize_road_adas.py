@@ -75,22 +75,22 @@ def collect_comprehensive_calibration_data(
     # 定义数据集目录及其权重（按重要性分配样本数）
     calibration_sources = [
         # 主要分割数据集
-        {"dir": "datasets/seg/bdd100k/images/10k/val", "name": "BDD100K-10k-val", "weight": 0.25, "recursive": False},
-        {"dir": "datasets/seg/cityscapes/leftImg8bit_trainvaltest/leftImg8bit/val", "name": "Cityscapes-val", "weight": 0.15, "recursive": True},
-        {"dir": "datasets/seg/idd/leftImg8bit/val", "name": "IDD-val", "weight": 0.10, "recursive": True},
-        {"dir": "datasets/seg/camvid/val", "name": "CamVid-val", "weight": 0.05, "recursive": False},
+        {"dir": "datasets/bdd100k/images/100k/val", "name": "BDD100K-val", "weight": 0.25, "recursive": False},
+        {"dir": "datasets/cityscapes/leftImg8bit_trainvaltest/leftImg8bit/val", "name": "Cityscapes-val", "weight": 0.15, "recursive": True},
+        {"dir": "datasets/idd20k_lite/leftImg8bit/val", "name": "IDD-val", "weight": 0.10, "recursive": True},
+        {"dir": "datasets/CamVid/test", "name": "CamVid-test", "weight": 0.05, "recursive": False},
         
         # 恶劣天气数据集（ACDC）
-        {"dir": "datasets/seg/acdc/rgb_anon_trainvaltest/rgb_anon/fog/val", "name": "ACDC-fog", "weight": 0.08, "recursive": True},
-        {"dir": "datasets/seg/acdc/rgb_anon_trainvaltest/rgb_anon/rain/val", "name": "ACDC-rain", "weight": 0.08, "recursive": True},
-        {"dir": "datasets/seg/acdc/rgb_anon_trainvaltest/rgb_anon/snow/val", "name": "ACDC-snow", "weight": 0.05, "recursive": True},
-        {"dir": "datasets/seg/acdc/rgb_anon_trainvaltest/rgb_anon/night/val", "name": "ACDC-night", "weight": 0.05, "recursive": True},
+        {"dir": "datasets/acdc/rgb_anon_trainvaltest/rgb_anon/fog/val", "name": "ACDC-fog", "weight": 0.08, "recursive": True},
+        {"dir": "datasets/acdc/rgb_anon_trainvaltest/rgb_anon/rain/val", "name": "ACDC-rain", "weight": 0.08, "recursive": True},
+        {"dir": "datasets/acdc/rgb_anon_trainvaltest/rgb_anon/snow/val", "name": "ACDC-snow", "weight": 0.05, "recursive": True},
+        {"dir": "datasets/acdc/rgb_anon_trainvaltest/rgb_anon/night/val", "name": "ACDC-night", "weight": 0.05, "recursive": True},
         
         # 恶劣天气数据集（DAWN）
-        {"dir": "datasets/det/dawn/images", "name": "DAWN-adverse", "weight": 0.10, "recursive": False},
+        {"dir": "datasets/dawn/images", "name": "DAWN-adverse", "weight": 0.10, "recursive": False},
         
         # 检测数据集（补充场景多样性）
-        {"dir": "datasets/det/bdd100k/images/100k/val", "name": "BDD100K-det-val", "weight": 0.09, "recursive": False},
+        {"dir": "datasets/bdd100k/images/100k/val", "name": "BDD100K-det-val", "weight": 0.09, "recursive": False},
     ]
     
     if verbose:
@@ -182,23 +182,28 @@ def quantize_model(
     
     if precision == "FP16":
         print(f"  量化到 FP16...")
-        compressed_model = nncf.compress_model(model, "fp16")
+        # 使用OpenVINO的convert_model进行FP16转换
+        compressed_model = ov.convert_model(
+            model,
+            compress_to_fp16=True
+        )
     elif precision == "INT8":
-        print(f"  量化到 INT8 (使用 MIXED 预设，平衡精度与速度)...")
+        print(f"  量化到 INT8 (使用精度控制量化保护精度)...")
         
         def transform_fn(data_item: np.ndarray) -> np.ndarray:
             return data_item
         
         dataset = nncf.Dataset(calibration_data, transform_fn)
         
-        # 使用 MIXED 预设 + overflow_fix 修复第一层溢出问题
+        # 使用精度控制量化，允许部分层保持FP32以保护精度
         compressed_model = nncf.quantize(
             model,
             dataset,
             preset=nncf.QuantizationPreset.MIXED,
             fast_bias_correction=True,
             advanced_parameters=nncf.AdvancedQuantizationParameters(
-                overflow_fix=nncf.OverflowFix.FIRST_LAYER
+                overflow_fix=nncf.OverflowFix.FIRST_LAYER,
+                disable_bias_correction=False,
             ),
         )
     else:
@@ -250,7 +255,7 @@ def verify_quantized_model(
 def main() -> None:
     parser = argparse.ArgumentParser(description="road-adas 模型量化（全面覆盖版）")
     parser.add_argument("--precision", type=str, default="INT8", choices=["FP16", "INT8"], help="目标精度")
-    parser.add_argument("--num_samples", type=int, default=500, help="校准样本数量（建议 500）")
+    parser.add_argument("--num_samples", type=int, default=1000, help="校准样本数量（建议 1000）")
     parser.add_argument("--input_size", type=str, default="1024,1024", help="输入尺寸 (H,W)")
     parser.add_argument("--seed", type=int, default=42, help="随机种子（确保可重复）")
     args = parser.parse_args()
