@@ -32,35 +32,35 @@ segmentation:
   # 但请按你实际下载的标注「文件后缀」确认（labelIds 还是 trainIds，二者 road 值不同）。
   datasets:
     - name: bdd100k
-      images_dir: datasets/bdd100k/images/100k/val
-      labels_dir: datasets/bdd100k/labels/bdd100k_drivable_maps/labels/val
-      # BDD100K drivable_maps 标注格式：road=1 (可行驶), 2 (可行驶但需小心), 0 (不可行驶)
-      label_suffix: _drivable_id.png
+      images_dir: datasets/seg/bdd100k/images/10k/val
+      labels_dir: datasets/seg/bdd100k/labels/bdd100k_seg_maps/labels/val
+      # BDD100K trainIds 格式：road=0
+      label_suffix: _train_id.png
       image_suffix: .jpg
-      road_value: 1
+      road_value: 0
       ignore_value: 255
-      recursive: false         # bdd100k 没有子目录
+      recursive: false
     - name: idd
-      images_dir: datasets/idd20k_lite/leftImg8bit/val
-      labels_dir: datasets/idd20k_lite/gtFine/val
+      images_dir: datasets/seg/idd/leftImg8bit/val
+      labels_dir: datasets/seg/idd/gtFine/val
       # IDD 标注格式：*_image.jpg → *_label.png，road=0（trainIds 格式）
       label_suffix: _label.png
       image_suffix: _image.jpg
       road_value: 0
       ignore_value: 255
-      recursive: true          # idd 有子目录
+      recursive: true
     - name: acdc
-      images_dir: datasets/acdc/rgb_anon_trainvaltest/rgb_anon/fog/val
-      labels_dir: datasets/acdc/gt_trainval/gt/fog/val
+      images_dir: datasets/seg/acdc/rgb_anon_trainvaltest/rgb_anon/fog/val
+      labels_dir: datasets/seg/acdc/gt_trainval/gt/fog/val
       # ACDC _gt_invIds.png 是二值标注：0=背景，1=道路
       label_suffix: _gt_invIds.png
       image_suffix: _rgb_anon.png
       road_value: 1
       ignore_value: 255
-      recursive: true          # acdc 有子目录（视频序列）
+      recursive: true
     - name: cityscapes
-      images_dir: datasets/cityscapes/leftImg8bit_trainvaltest/leftImg8bit/val
-      labels_dir: datasets/cityscapes/gtFine_trainvaltest/gtFine/val
+      images_dir: datasets/seg/cityscapes/leftImg8bit_trainvaltest/leftImg8bit/val
+      labels_dir: datasets/seg/cityscapes/gtFine_trainvaltest/gtFine/val
       # Cityscapes 标注格式：*_leftImg8bit.png → *_gtFine_labelIds.png，road=7（labelIds 格式）
       label_suffix: _gtFine_labelIds.png
       image_suffix: _leftImg8bit.png
@@ -91,6 +91,7 @@ models:
     pidnet_int8:   models/openvino/pidnet-s-int8/pidnet-s.xml      # 量化后产出（暂不存在）
     road_adas:      models/openvino/road-segmentation-adas-0001/road-segmentation-adas-0001.xml
     road_adas_fp16: models/openvino/road-adas-fp16/road-segmentation-adas-0001.xml  # FP16 转换产出
+    road_adas_int8: models/openvino/road-adas-int8/road-segmentation-adas-0001.xml  # INT8 量化产出
 
 # -------------------------- 量化（INT8，开发机就能做）--------------------------
 quantization:
