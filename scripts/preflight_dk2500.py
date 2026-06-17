@@ -260,8 +260,13 @@ def check_motor(ports: dict) -> dict:
             i2c_addr=int(cfg.get("driver_address", "0x5A"), 16),
         )
         motor.start()
+        # 检测是否自动回退到了 mock 模式
+        if not motor.is_real:
+            result["status"] = "FAILED"
+            result["error"] = "I2C 初始化失败，已自动回退至 mock 模式"
+        else:
+            result["status"] = "OK"
         motor.stop()
-        result["status"] = "OK"
     except ImportError as e:
         result["status"] = "SKIPPED"
         result["error"] = f"smbus2 库不可用: {e}"
