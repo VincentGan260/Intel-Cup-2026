@@ -19,7 +19,7 @@ detector:
   
   backend: openvino               # 可选值：yolo_ultralytics（默认）或 openvino
   
-  device: AUTO                     # OpenVINO 专用：CPU / GPU / NPU
+  device: CPU                     # 推理设备：CPU / GPU / NPU / AUTO
 
   # 推理设备。null 表示让 Ultralytics 自动选择；也可填 cpu、0、cuda:0 等。
   

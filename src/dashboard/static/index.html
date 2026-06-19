@@ -1,0 +1,634 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>骑手前向安全预警 Dashboard</title>
+<style>
+  :root {
+    --bg: #0f1119;
+    --card: #1a1d2e;
+    --text: #e0e0e0;
+    --sub: #8890a4;
+    --green: #22c55e;
+    --yellow: #eab308;
+    --red: #ef4444;
+    --blue: #3b82f6;
+    --border: #2a2d3e;
+  }
+
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  body {
+    font-family: "Segoe UI", "Microsoft YaHei", system-ui, sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    height: 100vh;
+    overflow: hidden;
+  }
+
+  /* 标题栏 */
+  .header {
+    background: var(--card);
+    border-bottom: 1px solid var(--border);
+    padding: 10px 24px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    height: 48px;
+  }
+  .header h1 { font-size: 18px; font-weight: 600; }
+  .header .status-dot {
+    width: 8px; height: 8px; border-radius: 50%;
+    display: inline-block; margin-right: 6px;
+  }
+  .header .status-dot.online { background: var(--green); }
+  .header .status-dot.offline { background: var(--red); }
+  .header .status-text { font-size: 13px; color: var(--sub); }
+
+  /* 主布局 */
+  .main {
+    display: flex;
+    height: calc(100vh - 48px);
+  }
+
+  /* 左：视频 */
+  .video-col {
+    flex: 1;
+    min-width: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: #000;
+    position: relative;
+  }
+  .video-wrapper {
+    position: relative;
+    display: inline-block;
+    max-width: 100%;
+    max-height: 100%;
+  }
+  .video-wrapper img {
+    display: block;
+    max-width: 100%;
+    max-height: 100%;
+    object-fit: contain;
+  }
+  .video-wrapper canvas {
+    position: absolute;
+    top: 0; left: 0;
+    width: 100%; height: 100%;
+    pointer-events: none;
+  }
+  .video-label {
+    position: absolute;
+    bottom: 8px; left: 12px;
+    font-size: 12px; color: rgba(255,255,255,0.5);
+  }
+
+  /* 右：面板 */
+  .panel {
+    width: 360px;
+    background: var(--card);
+    border-left: 1px solid var(--border);
+    overflow-y: auto;
+    padding: 16px 20px;
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+  }
+
+  /* 卡片 */
+  .card {
+    background: #141723;
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 16px;
+  }
+  .card-title {
+    font-size: 13px; color: var(--sub);
+    text-transform: uppercase;
+    margin-bottom: 10px;
+    letter-spacing: 0.5px;
+  }
+
+  /* 风险区域 */
+  .risk-main { text-align: center; }
+  .risk-score {
+    font-size: 48px; font-weight: 700;
+    line-height: 1; margin: 8px 0;
+  }
+  .risk-level-badge {
+    display: inline-block;
+    padding: 4px 18px; border-radius: 20px;
+    font-size: 14px; font-weight: 600; margin-top: 4px;
+  }
+  .risk-level-badge.low { background: rgba(34,197,94,0.15); color: var(--green); }
+  .risk-level-badge.med { background: rgba(234,179,8,0.15); color: var(--yellow); }
+  .risk-level-badge.high { background: rgba(239,68,68,0.15); color: var(--red); }
+
+  /* 进度条 */
+  .risk-bar-track {
+    margin-top: 12px;
+    height: 8px; border-radius: 4px;
+    background: var(--border);
+    overflow: hidden;
+  }
+  .risk-bar-fill {
+    height: 100%; border-radius: 4px;
+    transition: width 0.3s, background 0.3s;
+  }
+
+  /* 风险分解 */
+  .risk-item-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 8px;
+    font-size: 13px;
+  }
+  .risk-item-label { width: 52px; color: var(--sub); }
+  .risk-item-bar {
+    flex: 1; margin: 0 10px;
+    height: 6px; border-radius: 3px;
+    background: var(--border);
+    overflow: hidden;
+  }
+  .risk-item-fill {
+    height: 100%; border-radius: 3px;
+    background: var(--blue);
+    transition: width 0.3s;
+  }
+  .risk-item-val { width: 40px; text-align: right; }
+
+  /* 传感器状态 */
+  .sensor-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 6px;
+    font-size: 13px;
+  }
+  .sensor-dot {
+    width: 8px; height: 8px; border-radius: 50%;
+    display: inline-block; margin-right: 8px;
+  }
+  .sensor-dot.on { background: var(--green); }
+  .sensor-dot.off { background: var(--red); }
+  .sensor-dot.mock { background: var(--yellow); }
+  .sensor-mode { color: var(--sub); }
+
+  /* 视觉详情行 */
+  .vd-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 6px;
+    font-size: 13px;
+  }
+  .vd-label { color: var(--sub); min-width: 104px; }
+  .vd-val { text-align: right; font-variant-numeric: tabular-nums; }
+  .vd-bar {
+    flex: 1; margin: 0 8px;
+    height: 4px; border-radius: 2px;
+    background: var(--border);
+    overflow: hidden;
+  }
+  .vd-bar-fill {
+    height: 100%; border-radius: 2px;
+    background: var(--blue);
+    transition: width 0.3s;
+  }
+
+  /* 连接异常遮罩 */
+  .error-overlay {
+    display: none;
+    position: fixed; inset: 0;
+    background: rgba(0,0,0,0.75);
+    z-index: 999;
+    align-items: center;
+    justify-content: center;
+  }
+  .error-overlay.show { display: flex; }
+  .error-box {
+    background: var(--card);
+    border: 1px solid var(--red);
+    border-radius: 12px;
+    padding: 32px 40px;
+    text-align: center;
+  }
+  .error-box h2 { color: var(--red); margin-bottom: 8px; }
+  .error-box p { color: var(--sub); font-size: 14px; }
+</style>
+</head>
+<body>
+
+<!-- 标题栏 -->
+<div class="header">
+  <h1>骑手前向安全预警 Dashboard</h1>
+  <div>
+    <span class="status-dot online" id="conn-dot"></span>
+    <span class="status-text" id="conn-text">已连接</span>
+  </div>
+</div>
+
+<!-- 主区域 -->
+<div class="main">
+
+  <!-- 左侧：摄像头画面 -->
+  <div class="video-col">
+    <div class="video-wrapper" id="video-wrapper">
+      <img src="/video_feed" alt="Camera" id="video-img">
+      <canvas id="overlay-canvas"></canvas>
+    </div>
+    <div class="video-label">MJPEG 实时画面</div>
+  </div>
+
+  <!-- 右侧：状态面板 -->
+  <div class="panel">
+
+    <!-- 风险评分 -->
+    <div class="card risk-main">
+      <div class="card-title">综合风险评分</div>
+      <div class="risk-score" id="risk-score">0.50</div>
+      <div class="risk-level-badge low" id="risk-badge">低风险</div>
+      <div class="risk-bar-track">
+        <div class="risk-bar-fill" id="risk-bar" style="width:50%; background:var(--green);"></div>
+      </div>
+    </div>
+
+    <!-- 风险分解 -->
+    <div class="card">
+      <div class="card-title">四项风险分解</div>
+      <div id="risk-items-container"></div>
+    </div>
+
+    <!-- 传感器状态 -->
+    <div class="card">
+      <div class="card-title">传感器状态</div>
+      <div id="sensors-container"></div>
+    </div>
+
+    <!-- 模式 -->
+    <div class="card">
+      <div class="card-title">运行模式</div>
+      <div style="display:flex;align-items:center;gap:8px;">
+        <span class="sensor-dot mock"></span>
+        <span id="mode-text">mock</span>
+      </div>
+    </div>
+
+    <!-- 视觉感知结果 -->
+    <div class="card" id="vision-card">
+      <div class="card-title">视觉感知结果</div>
+      <div id="vision-details-container"></div>
+    </div>
+
+    <!-- 运行状态 -->
+    <div class="card" id="runtime-card">
+      <div class="card-title">运行状态</div>
+      <div id="runtime-container"></div>
+    </div>
+
+    <!-- 系统消息 -->
+    <div class="card" style="padding:10px 16px;">
+      <span style="font-size:12px; color:var(--sub);" id="sys-msg">dashboard initialized</span>
+    </div>
+
+  </div>
+</div>
+
+<!-- 连接异常遮罩 -->
+<div class="error-overlay" id="error-overlay">
+  <div class="error-box">
+    <h2>后端连接异常</h2>
+    <p>无法获取系统状态数据，请检查 Dashboard 服务是否正常运行。</p>
+  </div>
+</div>
+
+<script>
+(function () {
+  const $ = (id) => document.getElementById(id);
+
+  let errorCount = 0;
+  const MAX_ERRORS = 3;
+
+  const sensorNames = ["camera", "vision", "radar", "imu", "gps"];
+  const sensorLabels = {"camera":"摄像头", "vision":"视觉","radar":"雷达","imu":"IMU","gps":"GPS"};
+  const riskItemNames = ["obs", "dist", "pose", "speed"];
+  const riskItemLabels = {"obs":"视觉风险","dist":"距离风险","pose":"姿态风险","speed":"速度风险"};
+
+  // 初始化风险分解行
+  const itemsContainer = $("risk-items-container");
+  const ids = {};
+  riskItemNames.forEach(k => {
+    const div = document.createElement("div");
+    div.className = "risk-item-row";
+    div.innerHTML =
+      '<span class="risk-item-label">' + riskItemLabels[k] + '</span>' +
+      '<div class="risk-item-bar"><div class="risk-item-fill" id="item-fill-' + k + '"></div></div>' +
+      '<span class="risk-item-val" id="item-val-' + k + '">0.00</span>';
+    itemsContainer.appendChild(div);
+    ids[k + "_fill"] = "item-fill-" + k;
+    ids[k + "_val"] = "item-val-" + k;
+  });
+
+  // 初始化传感器行
+  const sensorsContainer = $("sensors-container");
+  sensorNames.forEach(k => {
+    const div = document.createElement("div");
+    div.className = "sensor-row";
+    div.innerHTML =
+      '<span><span class="sensor-dot off" id="sen-dot-' + k + '"></span>' + sensorLabels[k] + '</span>' +
+      '<span class="sensor-mode" id="sen-mode-' + k + '">mock</span>';
+    sensorsContainer.appendChild(div);
+  });
+
+  // 初始化视觉详情行
+  const visionFields = ["valid", "object_count", "person_count", "vehicle_count", "max_confidence", "drivable_area_ratio", "max_visual_risk"];
+  const visionFieldLabels = {"valid":"Vision 有效","object_count":"目标数量","person_count":"行人数量","vehicle_count":"车辆数量","max_confidence":"最高置信度","drivable_area_ratio":"可行驶区域比例","max_visual_risk":"最大视觉风险"};
+  const visionFieldBars = {"max_confidence":true, "drivable_area_ratio":true, "max_visual_risk":true};
+  const vdIds = {};
+  const vdContainer = $("vision-details-container");
+  visionFields.forEach(k => {
+    const div = document.createElement("div");
+    div.className = "vd-row";
+    if (visionFieldBars[k]) {
+      div.innerHTML =
+        '<span class="vd-label">' + visionFieldLabels[k] + '</span>' +
+        '<div class="vd-bar"><div class="vd-bar-fill" id="vd-bar-' + k + '"></div></div>' +
+        '<span class="vd-val" id="vd-val-' + k + '">0.00</span>';
+      vdIds[k + "_bar"] = "vd-bar-" + k;
+    } else {
+      div.innerHTML =
+        '<span class="vd-label">' + visionFieldLabels[k] + '</span>' +
+        '<span class="vd-val" id="vd-val-' + k + '">-</span>';
+    }
+    vdContainer.appendChild(div);
+    vdIds[k + "_val"] = "vd-val-" + k;
+  });
+
+  // 初始化运行状态行
+  const runtimeFields = ["backend_uptime_sec", "state_hz", "last_update_time", "camera_available", "vision_enabled", "vision_status", "object_count", "state_loop_ms", "vision_infer_ms", "approx_state_fps"];
+  const runtimeLabels = {
+    "backend_uptime_sec":"后端运行时长",
+    "state_hz":"状态更新频率",
+    "last_update_time":"最后更新时间",
+    "camera_available":"摄像头状态",
+    "vision_enabled":"Vision 启用",
+    "vision_status":"Vision 状态",
+    "object_count":"当前目标数量",
+    "state_loop_ms":"状态循环耗时",
+    "vision_infer_ms":"Vision 推理耗时",
+    "approx_state_fps":"近似状态 FPS"
+  };
+  const rtIds = {};
+  const rtContainer = $("runtime-container");
+  runtimeFields.forEach(k => {
+    const div = document.createElement("div");
+    div.className = "vd-row";
+    div.innerHTML =
+      '<span class="vd-label">' + runtimeLabels[k] + '</span>' +
+      '<span class="vd-val" id="rt-val-' + k + '">--</span>';
+    rtContainer.appendChild(div);
+    rtIds[k + "_val"] = "rt-val-" + k;
+  });
+
+  // ── 视频叠加检测框绘制 ──
+  function drawOverlay(vd) {
+    const canvas = $("overlay-canvas");
+    const img = $("video-img");
+    if (!canvas || !img) return;
+
+    const ctx = canvas.getContext("2d");
+    const dw = img.clientWidth;
+    const dh = img.clientHeight;
+    if (dw <= 0 || dh <= 0) return;
+
+    // 匹配 video-wrapper 尺寸（即 img 显示尺寸）
+    const wrapper = $("video-wrapper");
+    if (wrapper) {
+      canvas.width = wrapper.clientWidth;
+      canvas.height = wrapper.clientHeight;
+    } else {
+      canvas.width = dw;
+      canvas.height = dh;
+    }
+
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+    const objects = vd.objects;
+    if (!objects || objects.length === 0) return;
+
+    const fs = vd.frame_size || {width: 640, height: 480};
+    // scale from original frame coords to canvas coords
+    // img is centered inside wrapper with object-fit:contain,
+    // so we need to compute the actual rendered rect of the img
+    const imgNaturalW = fs.width;
+    const imgNaturalH = fs.height;
+    const imgAspect = imgNaturalW / imgNaturalH;
+    const canvasAspect = canvas.width / canvas.height;
+
+    let renderW, renderH, offsetX, offsetY;
+    if (imgAspect > canvasAspect) {
+      renderW = canvas.width;
+      renderH = canvas.width / imgAspect;
+      offsetX = 0;
+      offsetY = (canvas.height - renderH) / 2;
+    } else {
+      renderH = canvas.height;
+      renderW = canvas.height * imgAspect;
+      offsetX = (canvas.width - renderW) / 2;
+      offsetY = 0;
+    }
+
+    const scaleX = renderW / imgNaturalW;
+    const scaleY = renderH / imgNaturalH;
+
+    objects.forEach(function (obj) {
+      const bbox = obj.bbox;
+      if (!bbox || bbox.length < 4) return;
+      const x1 = offsetX + bbox[0] * scaleX;
+      const y1 = offsetY + bbox[1] * scaleY;
+      const x2 = offsetX + bbox[2] * scaleX;
+      const y2 = offsetY + bbox[3] * scaleY;
+      const w = x2 - x1;
+      const h = y2 - y1;
+      if (w <= 0 || h <= 0) return;
+
+      const risk = typeof obj.risk === "number" ? obj.risk : 0;
+      let color;
+      if (risk < 0.3) color = "#22c55e";      // green
+      else if (risk < 0.7) color = "#eab308";  // yellow
+      else color = "#ef4444";                   // red
+
+      // draw bbox
+      ctx.strokeStyle = color;
+      ctx.lineWidth = 2;
+      ctx.strokeRect(x1, y1, w, h);
+
+      // draw label background
+      const label = obj.class_name + " " + (obj.confidence * 100).toFixed(0) + "%" +
+        (risk > 0 ? " R:" + risk.toFixed(2) : "");
+      ctx.font = "12px 'Segoe UI', 'Microsoft YaHei', sans-serif";
+      const textW = ctx.measureText(label).width + 8;
+      const textH = 20;
+      const labelY = y1 - textH - 2;
+      const drawLabelY = labelY > 0 ? labelY : y1 + 2;
+
+      ctx.fillStyle = "rgba(0,0,0,0.65)";
+      ctx.fillRect(x1, drawLabelY, Math.min(textW, w), textH);
+
+      ctx.fillStyle = color;
+      ctx.textBaseline = "middle";
+      ctx.fillText(label, x1 + 4, drawLabelY + textH / 2, Math.min(w - 8, textW - 8));
+    });
+  }
+
+  // 从 API 更新界面
+  async function update() {
+    try {
+      const resp = await fetch("/api/state");
+      if (!resp.ok) throw new Error("HTTP " + resp.status);
+      const s = await resp.json();
+
+      // 风险评分
+      $("risk-score").textContent = s.risk_score.toFixed(2);
+      const pct = (s.risk_score * 100).toFixed(1) + "%";
+
+      // 风险等级
+      const badge = $("risk-badge");
+      const bar = $("risk-bar");
+      if (s.risk_level === 0) {
+        badge.textContent = "低风险";
+        badge.className = "risk-level-badge low";
+        bar.style.background = "var(--green)";
+      } else if (s.risk_level === 1) {
+        badge.textContent = "中风险";
+        badge.className = "risk-level-badge med";
+        bar.style.background = "var(--yellow)";
+      } else {
+        badge.textContent = "高风险";
+        badge.className = "risk-level-badge high";
+        bar.style.background = "var(--red)";
+      }
+      bar.style.width = pct;
+
+      // 风险分解
+      riskItemNames.forEach(k => {
+        const v = s.risk_items[k] || 0;
+        $(ids[k + "_fill"]).style.width = (v * 100).toFixed(1) + "%";
+        $(ids[k + "_val"]).textContent = v.toFixed(2);
+      });
+
+      // 传感器状态
+      const sensors = s.sensors || {};
+      sensorNames.forEach(k => {
+        const val = sensors[k];
+        const dot = $("sen-dot-" + k);
+        const modeEl = $("sen-mode-" + k);
+        if (val === true || (typeof val === "boolean" && val)) {
+          dot.className = "sensor-dot on";
+          modeEl.textContent = "real";
+        } else if (val === false || (typeof val === "boolean" && !val)) {
+          dot.className = "sensor-dot off";
+          modeEl.textContent = "off";
+        } else {
+          dot.className = "sensor-dot mock";
+          modeEl.textContent = String(val);
+        }
+      });
+
+      // 模式
+      $("mode-text").textContent = s.mode || "mock";
+
+      // 视觉感知结果
+      const vd = s.vision_details || {};
+      visionFields.forEach(k => {
+        const el = $(vdIds[k + "_val"]);
+        if (!el) return;
+        if (k === "valid") {
+          el.textContent = vd.valid ? "是" : "否";
+          el.style.color = vd.valid ? "var(--green)" : "var(--red)";
+        } else if (typeof vd[k] === "number") {
+          el.textContent = vd[k].toFixed(2);
+        } else {
+          el.textContent = String(vd[k] != null ? vd[k] : "-");
+        }
+        if (visionFieldBars[k]) {
+          const bar = $(vdIds[k + "_bar"]);
+          if (bar && typeof vd[k] === "number") {
+            bar.style.width = (vd[k] * 100).toFixed(1) + "%";
+          }
+        }
+      });
+
+      // 视频叠加检测框
+      drawOverlay(vd);
+
+      // 运行状态
+      const rt = s.runtime || {};
+      runtimeFields.forEach(k => {
+        const el = $(rtIds[k + "_val"]);
+        if (!el) return;
+        const v = rt[k];
+        if (k === "backend_uptime_sec" && typeof v === "number") {
+          const secs = Math.floor(v);
+          const hh = Math.floor(secs / 3600);
+          const mm = Math.floor((secs % 3600) / 60);
+          const ss = secs % 60;
+          el.textContent = String(hh).padStart(2,"0") + ":" +
+            String(mm).padStart(2,"0") + ":" + String(ss).padStart(2,"0");
+        } else if (k === "state_hz" && typeof v === "number") {
+          el.textContent = v + " Hz";
+        } else if (k === "camera_available" || k === "vision_enabled") {
+          el.textContent = v ? "是" : "否";
+          el.style.color = v ? "var(--green)" : "var(--red)";
+        } else if (k === "vision_status") {
+          el.textContent = String(v != null ? v : "--");
+          if (v === "real") el.style.color = "var(--green)";
+          else if (v === "off") el.style.color = "var(--red)";
+          else if (v === "mock") el.style.color = "var(--yellow)";
+          else el.style.color = "var(--sub)";
+        } else if (k === "state_loop_ms" && typeof v === "number") {
+          el.textContent = v.toFixed(2) + " ms";
+        } else if (k === "vision_infer_ms" && typeof v === "number") {
+          el.textContent = v.toFixed(2) + " ms";
+        } else if (k === "approx_state_fps" && typeof v === "number") {
+          el.textContent = v.toFixed(2) + " FPS";
+        } else if (typeof v === "number") {
+          el.textContent = String(v);
+        } else {
+          el.textContent = String(v != null ? v : "--");
+        }
+      });
+
+      // 系统消息
+      if (s.message) {
+        $("sys-msg").textContent = s.message;
+      }
+
+      // 连接正常
+      errorCount = 0;
+      $("conn-dot").className = "status-dot online";
+      $("conn-text").textContent = "已连接";
+      $("error-overlay").classList.remove("show");
+
+    } catch (e) {
+      errorCount++;
+      if (errorCount >= MAX_ERRORS) {
+        $("conn-dot").className = "status-dot offline";
+        $("conn-text").textContent = "连接异常";
+        $("error-overlay").classList.add("show");
+      }
+    }
+  }
+
+  // 每 500ms 轮询
+  update();
+  setInterval(update, 500);
+
+})();
+</script>
+</body>
+</html>
