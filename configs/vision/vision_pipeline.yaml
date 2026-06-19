@@ -9,7 +9,7 @@ enable_segmentation: true
 
 # 子模块配置文件路径
 detection_config: configs/vision/detection.yaml
-segmentation_config: configs/vision/segmentation_openvino.yaml
+segmentation_config: configs/vision/segmentation_adas_fp16.yaml
 
 output:
   # 是否保存带检测框的调试图

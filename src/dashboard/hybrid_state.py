@@ -20,11 +20,14 @@ def build_hybrid_state(
     vision_adapter: Optional[object] = None,
     bgr_frame=None,
     camera_available: bool = False,
+    imu_reader: Optional[object] = None,
+    enable_imu: bool = False,
 ) -> dict:
     """使用真实 RiskModel 构建一帧系统状态。
 
-    GPS / IMU / Radar 全部使用默认无效 dataclass（不打开串口）。
+    GPS / Radar 使用默认无效 dataclass（不打开串口）。
     Vision 仅在 vision_adapter 和 bgr_frame 都存在时执行推理。
+    IMU 支持真实串口（enable_imu=True）或 mock 数据。
 
     Args:
         risk_model: 已初始化的 RiskModel 实例
@@ -33,6 +36,8 @@ def build_hybrid_state(
         vision_adapter: VisionAdapter 或 None。为 None 时 vision=off
         bgr_frame: BGR 图像 (H, W, 3) 或 None
         camera_available: 摄像头当前是否可用
+        imu_reader: IMUReader 或 None
+        enable_imu: 是否已成功启用 IMU
 
     Returns:
         dict，兼容 DashboardStateStore.set_state() 格式。
@@ -44,8 +49,19 @@ def build_hybrid_state(
 
         ts = time.time()
         gps = GPSData(timestamp=ts, valid=False)
-        imu = IMUData(timestamp=ts, valid=False)
         radar = RadarData(timestamp=ts, valid=False)
+
+        # ── 1b. IMU（可选真实） ──
+        imu_mode = "mock"
+        if enable_imu and imu_reader is not None:
+            try:
+                imu = imu_reader.read_once()
+                imu_mode = "real" if imu.valid else "invalid"
+            except Exception:
+                imu = IMUData(timestamp=ts, valid=False)
+                imu_mode = "invalid"
+        else:
+            imu = IMUData(timestamp=ts, valid=False)
 
         # ── 2. 视觉（可选真实） ──
         vision_data = None
@@ -145,12 +161,22 @@ def build_hybrid_state(
                 "camera": camera_available,
                 "vision": vision_mode,
                 "radar": "mock",
-                "imu": "mock",
+                "imu": imu_mode,
                 "gps": "mock",
             },
             "mode": "hybrid",
-            "message": f"hybrid active | vision={vision_mode}",
+            "message": f"hybrid active | vision={vision_mode} | imu={imu_mode}",
             "vision_details": vision_details,
+            # ── IMU 实时数据 ──
+            "imu_data": {
+                "roll": round(float(imu.roll), 2) if imu.valid else 0.0,
+                "pitch": round(float(imu.pitch), 2) if imu.valid else 0.0,
+                "yaw": round(float(imu.yaw), 2) if imu.valid else 0.0,
+                "acc_x": round(float(imu.acc_x), 2) if imu.valid else 0.0,
+                "acc_y": round(float(imu.acc_y), 2) if imu.valid else 0.0,
+                "acc_z": round(float(imu.acc_z), 2) if imu.valid else 0.0,
+                "valid": imu.valid,
+            },
         }
 
     except Exception as e:

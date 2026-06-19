@@ -92,6 +92,21 @@ def attach_runtime_info(
     return state
 
 
+def _cue_vision_result_cache(vision_adapter) -> None:
+    """将 vision_adapter 内最新的 VisionResult 写入 server.py 缓存。
+
+    由 dashboard_state_loop 在每次状态更新后调用。
+    不重复推理，仅读取 vision_adapter.get_latest_vision_result()。
+    """
+    try:
+        from src.dashboard.server import update_vision_result_cache
+
+        vr = vision_adapter.get_latest_vision_result() if vision_adapter else None
+        update_vision_result_cache(vr)
+    except Exception:
+        pass
+
+
 def dashboard_state_loop(
     state_store,
     camera_producer,
@@ -103,6 +118,8 @@ def dashboard_state_loop(
     synchronizer=None,
     vision_adapter=None,
     enable_vision: bool = False,
+    imu_reader=None,
+    enable_imu: bool = False,
     interval: float = 0.2,
     start_time: float = 0.0,
     state_hz: int = 5,
@@ -144,7 +161,13 @@ def dashboard_state_loop(
                     vision_adapter=vision_adapter,
                     bgr_frame=bgr_frame,
                     camera_available=camera_producer.is_available,
+                    imu_reader=imu_reader,
+                    enable_imu=enable_imu,
                 )
+
+                # 将最新 VisionResult 写入缓存（视频流每帧读取绘制，不重复推理）
+                if bgr_frame is not None:
+                    _cue_vision_result_cache(vision_adapter)
             else:
                 state = build_mock_state(camera_available=camera_producer.is_available)
 
@@ -182,6 +205,10 @@ def main() -> None:
         help="hybrid 模式下启用视觉推理（需要 openvino 环境）",
     )
     parser.add_argument(
+        "--enable-imu", action="store_true",
+        help="hybrid 模式下启用真实 IMU（WT61C 串口传感器）",
+    )
+    parser.add_argument(
         "--risk-config", type=str, default="configs/risk_params.yaml",
         help="风险参数配置文件路径",
     )
@@ -215,6 +242,7 @@ def main() -> None:
     classifier = None
     synchronizer = None
     vision_adapter = None
+    imu_reader = None
     vision_init_ok = False
 
     if args.dashboard_mode == "hybrid":
@@ -222,6 +250,7 @@ def main() -> None:
         print("  [Hybrid 模式初始化]")
         print(f"    风险配置: {args.risk_config}")
         print(f"    视觉:     {'启用' if args.enable_vision else '关闭'}")
+        print(f"    IMU:      {'启用' if args.enable_imu else '关闭'}")
 
         # ── RiskModel ──
         try:
@@ -281,6 +310,33 @@ def main() -> None:
                 print(f"    VisionAdapter:      SKIPPED ({e})")
                 vision_adapter = None
 
+        # ── IMUReader（可选） ──
+        imu_reader = None
+        imu_init_ok = False
+        if args.dashboard_mode == "hybrid" and args.enable_imu:
+            try:
+                from src.sensors.imu_reader import IMUReader
+
+                # 加载 IMU 串口配置
+                import yaml
+                ports_path = Path("configs/sensor_ports.yaml")
+                with open(ports_path, "r", encoding="utf-8") as f:
+                    ports_cfg = yaml.safe_load(f)
+                # 按平台选择配置：优先 windows → dk2500
+                platform_cfg = ports_cfg.get("windows", ports_cfg.get("dk2500", {}))
+                imu_cfg = platform_cfg.get("imu", {})
+                imu_reader = IMUReader(mode="real", config=imu_cfg)
+                imu_reader.start()
+                if imu_reader._serial is not None:
+                    imu_init_ok = True
+                    print(f"    IMUReader:           OK (port={imu_cfg.get('port', '?')})")
+                else:
+                    print(f"    IMUReader:           DEGRADED (串口打开失败，imu=mock)")
+                    imu_reader = None
+            except Exception as e:
+                print(f"    IMUReader:           SKIPPED ({e})")
+                imu_reader = None
+
         if args.dashboard_mode == "mock":
             print("    → 已降级到 mock 模式")
         print("-" * 55)
@@ -301,6 +357,8 @@ def main() -> None:
             "synchronizer": synchronizer,
             "vision_adapter": vision_adapter,
             "enable_vision": args.enable_vision and vision_init_ok,
+            "imu_reader": imu_reader,
+            "enable_imu": args.enable_imu and imu_init_ok,
             "interval": interval,
             "start_time": _start_time,
             "state_hz": args.state_hz,
@@ -327,7 +385,7 @@ def main() -> None:
     print(f"  状态更新: 后台线程 ({args.state_hz} Hz)")
     if args.dashboard_mode == "hybrid":
         print(f"  RiskModel: 真实计算")
-        print(f"  GPS/IMU/Radar: mock（不打开串口）")
+        print(f"  GPS/IMU/Radar: {'IMU=real, ' if (args.enable_imu and imu_init_ok) else ''}其余 mock（不打开串口）")
         print(f"  Vision: {'已启用' if (args.enable_vision and vision_init_ok) else '关闭'}")
     print("=" * 55)
 
@@ -352,6 +410,13 @@ def main() -> None:
                     vision_adapter.stop()
             except Exception as e:
                 print(f"[清理] VisionAdapter.stop() 异常: {e}")
+
+        # 释放 IMUReader
+        if imu_reader is not None:
+            try:
+                imu_reader.stop()
+            except Exception as e:
+                print(f"[清理] IMUReader.stop() 异常: {e}")
 
         camera.release()
 

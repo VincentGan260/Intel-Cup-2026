@@ -84,7 +84,22 @@
     position: absolute;
     bottom: 8px; left: 12px;
     font-size: 12px; color: rgba(255,255,255,0.5);
+    display: flex; align-items: center; gap: 6px; z-index: 5;
   }
+  .video-mode-btn {
+    background: rgba(255,255,255,0.08);
+    border: 1px solid rgba(255,255,255,0.15);
+    color: rgba(255,255,255,0.5);
+    padding: 3px 10px; border-radius: 12px;
+    font-size: 11px; cursor: pointer;
+    transition: all 0.2s;
+  }
+  .video-mode-btn.active {
+    background: rgba(0,220,180,0.2);
+    border-color: rgba(0,220,180,0.4);
+    color: #00dcb4;
+  }
+  .video-mode-btn:hover { opacity: 0.85; }
 
   /* 右：面板 */
   .panel {
@@ -238,10 +253,15 @@
   <!-- 左侧：摄像头画面 -->
   <div class="video-col">
     <div class="video-wrapper" id="video-wrapper">
-      <img src="/video_feed" alt="Camera" id="video-img">
+      <img src="/video_annotated_feed" alt="Camera" id="video-img">
       <canvas id="overlay-canvas"></canvas>
     </div>
-    <div class="video-label">MJPEG 实时画面</div>
+    <div class="video-label">
+      <span>画面模式：</span>
+      <button id="btn-video-mode" class="video-mode-btn active" onclick="toggleVideoMode()">
+        视觉增强
+      </button>
+    </div>
   </div>
 
   <!-- 右侧：状态面板 -->
@@ -267,6 +287,12 @@
     <div class="card">
       <div class="card-title">传感器状态</div>
       <div id="sensors-container"></div>
+    </div>
+
+    <!-- IMU 实时数据 -->
+    <div class="card" id="imu-card">
+      <div class="card-title">IMU 姿态数据</div>
+      <div id="imu-container"></div>
     </div>
 
     <!-- 模式 -->
@@ -342,6 +368,21 @@
       '<span><span class="sensor-dot off" id="sen-dot-' + k + '"></span>' + sensorLabels[k] + '</span>' +
       '<span class="sensor-mode" id="sen-mode-' + k + '">mock</span>';
     sensorsContainer.appendChild(div);
+  });
+
+  // 初始化 IMU 数据行
+  const imuFields = ["roll", "pitch", "yaw", "acc_x", "acc_y", "acc_z"];
+  const imuLabels = {"roll":"Roll (滚转角)","pitch":"Pitch (俯仰角)","yaw":"Yaw (航向角)","acc_x":"Acc X","acc_y":"Acc Y","acc_z":"Acc Z"};
+  const imuIds = {};
+  const imuContainer = $("imu-container");
+  imuFields.forEach(k => {
+    const div = document.createElement("div");
+    div.className = "sensor-row";
+    div.innerHTML =
+      '<span class="sensor-label">' + imuLabels[k] + '</span>' +
+      '<span class="sensor-mode" id="imu-val-' + k + '" style="font-family:monospace;">--</span>';
+    imuContainer.appendChild(div);
+    imuIds[k + "_val"] = "imu-val-" + k;
   });
 
   // 初始化视觉详情行
@@ -485,6 +526,23 @@
     });
   }
 
+  function toggleVideoMode() {
+      var btn = $('btn-video-mode');
+      var img = $('video-img');
+      if (btn.classList.contains('active')) {
+        // 切换到原始画面
+        btn.classList.remove('active');
+        btn.textContent = '原始画面';
+        img.src = '/video_feed';
+      } else {
+        // 切换回视觉增强
+        btn.classList.add('active');
+        btn.textContent = '视觉增强';
+        img.src = '/video_annotated_feed';
+      }
+    }
+    window.toggleVideoMode = toggleVideoMode;
+
   // 从 API 更新界面
   async function update() {
     try {
@@ -542,6 +600,25 @@
       // 模式
       $("mode-text").textContent = s.mode || "mock";
 
+      // IMU 数据
+      const imuData = s.imu_data || {};
+      imuFields.forEach(k => {
+        const el = $(imuIds[k + "_val"]);
+        if (!el) return;
+        const v = imuData[k];
+        if (typeof v === "number") {
+          el.textContent = k.startsWith("acc") ? v.toFixed(2) + " m/s²" : v.toFixed(2) + "°";
+        } else {
+          el.textContent = "--";
+        }
+      });
+      // IMU 卡片有效性提示
+      if (!imuData.valid) {
+        $("imu-card").querySelector(".card-title").textContent = "IMU 姿态数据 (无数据)";
+      } else {
+        $("imu-card").querySelector(".card-title").textContent = "IMU 姿态数据";
+      }
+
       // 视觉感知结果
       const vd = s.vision_details || {};
       visionFields.forEach(k => {
@@ -563,8 +640,8 @@
         }
       });
 
-      // 视频叠加检测框
-      drawOverlay(vd);
+      // 视频叠加检测框（后端已绘制到 /video_annotated_feed，前端仅作备用关闭）
+      // drawOverlay(vd);
 
       // 运行状态
       const rt = s.runtime || {};

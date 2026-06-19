@@ -22,6 +22,7 @@ import numpy as np
 import yaml
 
 from src.fusion.data_types import VisionData, VisionObject, now
+from src.vision.common.types import VisionResult
 
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
@@ -52,6 +53,7 @@ class VisionAdapter:
         self._pipeline = None
         self._config: Optional[dict] = None
         self._latest: Optional[VisionData] = None
+        self._latest_vision_result: Optional[VisionResult] = None
 
     # ---- 生命周期 ----
 
@@ -182,6 +184,7 @@ class VisionAdapter:
 
             # 视觉管线推理
             vision_result = self._pipeline.process(frame)
+            self._latest_vision_result = vision_result
             h, w = frame.shape[:2]
 
             # 转换为 VisionData
@@ -234,5 +237,13 @@ class VisionAdapter:
         return result
 
     def get_latest(self) -> Optional[VisionData]:
-        """返回最近一次 process() 的结果。"""
+        """返回最近一次 process() 的 VisionData 结果。"""
         return self._latest
+
+    def get_latest_vision_result(self) -> Optional[VisionResult]:
+        """返回最近一次 process() 的 VisionResult 原始结果。
+
+        供 Dashboard 等消费者获取 drivable_mask 用于绘制增强视频流。
+        仅在视觉启用且管线已初始化时返回有效数据。
+        """
+        return self._latest_vision_result
