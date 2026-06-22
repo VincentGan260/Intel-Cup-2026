@@ -25,11 +25,12 @@ detection:
   exclude_classes:  [traffic sign, traffic light, train]
 
 # -------------------------- 分割精度评测（road IoU）--------------------------
+# ⚠️ 旧参考段：现行分割评测走 scripts/vision/eval_seg.py（manifest 驱动 + tools/unify_seg_labels.to_road_mask
+#    统一标签），不再读取下面的 datasets glob 配置。本段仅作历史参考；如要复用旧式 glob 评测，
+#    务必照下面已修正的后缀/road_value（尤其 ACDC 用 _gt_labelTrainIds(road=0)，不是 _gt_invIds）。
 segmentation:
   num_samples: 200
   input_hw: [512, 896]        # road-adas 输入；PIDNet 由各自模型决定，脚本会处理
-  # 每个数据集一个适配器。最易错的是 road_value / ignore_value，下面已按惯例填好，
-  # 但请按你实际下载的标注「文件后缀」确认（labelIds 还是 trainIds，二者 road 值不同）。
   datasets:
     - name: bdd100k
       images_dir: datasets/seg/bdd100k/images/10k/val
@@ -50,12 +51,13 @@ segmentation:
       ignore_value: 255
       recursive: true
     - name: acdc
-      images_dir: datasets/seg/acdc/rgb_anon_trainvaltest/rgb_anon/fog/val
-      labels_dir: datasets/seg/acdc/gt_trainval/gt/fog/val
-      # ACDC _gt_invIds.png 是二值标注：0=背景，1=道路
-      label_suffix: _gt_invIds.png
+      # 修正：覆盖全部天气（fog/night/rain/snow），用语义 labelTrainIds（road=0）
+      # 原配置用 _gt_invIds.png+road_value:1 是错的——invIds 是「无效区域掩码」不是道路
+      images_dir: datasets/seg/acdc/rgb_anon_trainvaltest/rgb_anon
+      labels_dir: datasets/seg/acdc/gt_trainval/gt
+      label_suffix: _gt_labelTrainIds.png
       image_suffix: _rgb_anon.png
-      road_value: 1
+      road_value: 0
       ignore_value: 255
       recursive: true
     - name: cityscapes

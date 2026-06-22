@@ -37,10 +37,9 @@ class FastAdasSegmenter:
         self.device = device
     
     def infer(self, frame):
-        # 预处理：缩放并转换为模型输入格式
+        # 预处理：缩放（road-adas 要求 BGR 输入，不转 RGB）
         img_resized = cv2.resize(frame, (self.input_width, self.input_height))
-        img_rgb = cv2.cvtColor(img_resized, cv2.COLOR_BGR2RGB)
-        input_data = np.expand_dims(np.transpose(img_rgb, (2, 0, 1)), 0).astype(np.float32)
+        input_data = np.expand_dims(np.transpose(img_resized, (2, 0, 1)), 0).astype(np.float32)
         
         # 推理
         result = self.compiled_model(input_data)[self.output_layer]
@@ -50,8 +49,9 @@ class FastAdasSegmenter:
         label_map = np.argmax(logits, axis=0)
         drivable_mask = (label_map == self.road_class).astype(np.uint8)
         
-        # 缩放到原始尺寸
-        drivable_mask = cv2.resize(drivable_mask, (frame.shape[1], frame.shape[0]))
+        # 缩放到原始尺寸（mask 用最近邻，避免插出中间值）
+        drivable_mask = cv2.resize(drivable_mask, (frame.shape[1], frame.shape[0]),
+                                   interpolation=cv2.INTER_NEAREST)
         
         # 计算可行驶区域占比
         drivable_ratio = np.sum(drivable_mask) / drivable_mask.size

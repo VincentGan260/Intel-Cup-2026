@@ -34,8 +34,10 @@
 •	主:road IoU(road-adas vs PIDNet-S 公平对比);
 •	多类模型可另算 mIoU,但主看 road;
 •	像素准确率弱化,且须在同一标签空间下算(旧脚本跨编号 == 要改)。
-待办(卡点)
-•	⏳ 队友确认 BDD 检测标注格式(旧版逐图 json frames[].objects[].box2d )→ 确认后即可写检测评测(也可两种格式都兼容,不等)。
+完成状态
+•	✅ 精度轮(本地 CPU · FP32)已完成:分割 1004 张 + 检测 2300 张全量评测,指标齐全。
+•	📄 实际结果见 docs/精度评测结果.md;评测程序 scripts/vision/eval_seg.py、eval_det.py(manifest 驱动,可复现)。
+•	数据/抽样见 测试说明.md 与 test_plan/*.csv。
 
 
 

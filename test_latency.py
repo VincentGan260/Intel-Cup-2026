@@ -3,8 +3,8 @@ import cv2, numpy as np, openvino as ov, time
 from pathlib import Path
 
 # 模型路径
-fp32_xml = "yolo26n_openvino_model/yolo26n.xml"
-int8_xml = "yolo26n_int8_v2.xml"
+fp32_xml = "models/yolo26n_openvino_model/yolo26n.xml"
+int8_xml = "models/openvino/yolo26n-int8-v2/yolo26n_int8_v2.xml"
 
 print("=" * 60)
 print("延迟稳定性测试（100次推理）")

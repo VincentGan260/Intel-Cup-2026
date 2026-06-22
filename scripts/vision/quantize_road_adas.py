@@ -70,94 +70,47 @@ def collect_comprehensive_calibration_data(
     total_samples: int = 300,
     verbose: bool = True
 ) -> list[np.ndarray]:
-    """从多个数据集收集全面的校准数据，确保覆盖多种场景和天气条件。"""
-    
-    # 定义数据集目录及其权重（按重要性分配样本数）
-    calibration_sources = [
-        # 主要分割数据集
-        {"dir": "datasets/bdd100k/images/100k/val", "name": "BDD100K-val", "weight": 0.25, "recursive": False},
-        {"dir": "datasets/cityscapes/leftImg8bit_trainvaltest/leftImg8bit/val", "name": "Cityscapes-val", "weight": 0.15, "recursive": True},
-        {"dir": "datasets/idd20k_lite/leftImg8bit/val", "name": "IDD-val", "weight": 0.10, "recursive": True},
-        {"dir": "datasets/CamVid/test", "name": "CamVid-test", "weight": 0.05, "recursive": False},
-        
-        # 恶劣天气数据集（ACDC）
-        {"dir": "datasets/acdc/rgb_anon_trainvaltest/rgb_anon/fog/val", "name": "ACDC-fog", "weight": 0.08, "recursive": True},
-        {"dir": "datasets/acdc/rgb_anon_trainvaltest/rgb_anon/rain/val", "name": "ACDC-rain", "weight": 0.08, "recursive": True},
-        {"dir": "datasets/acdc/rgb_anon_trainvaltest/rgb_anon/snow/val", "name": "ACDC-snow", "weight": 0.05, "recursive": True},
-        {"dir": "datasets/acdc/rgb_anon_trainvaltest/rgb_anon/night/val", "name": "ACDC-night", "weight": 0.05, "recursive": True},
-        
-        # 恶劣天气数据集（DAWN）
-        {"dir": "datasets/dawn/images", "name": "DAWN-adverse", "weight": 0.10, "recursive": False},
-        
-        # 检测数据集（补充场景多样性）
-        {"dir": "datasets/bdd100k/images/100k/val", "name": "BDD100K-det-val", "weight": 0.09, "recursive": False},
-    ]
-    
+    """从 seg_manifest.csv 收集多数据集/多天气校准图。
+
+    manifest 已覆盖 cityscapes / idd / acdc(雾雨雪夜) / bdd / camvid，且路径基于 dataset_root，
+    保证「存在且代表性强」。注：PTQ 只采集激活分布、不拟合权重，用 val 图校准是常规做法。
+    """
+    import csv
+    from collections import Counter
+
+    cfg = load_eval_config()
+    root = cfg.get("dataset_root")
+    if not root:
+        print("❌ eval.local.yaml 缺 dataset_root，无法定位校准数据")
+        return []
+    root = Path(root)
+    manifest = root / "test_plan" / "seg_manifest.csv"
+    if not manifest.is_file():
+        print(f"❌ 找不到 {manifest}")
+        return []
+
+    rows = list(csv.DictReader(manifest.open(encoding="utf-8")))
+    random.shuffle(rows)
+    rows = rows[:total_samples]
+
     if verbose:
         print(f"\n{'='*70}")
-        print(f"收集全面校准数据（目标: {total_samples} 张）")
+        print(f"从 seg_manifest 收集校准数据（采样 {len(rows)} 张）")
+        print(f"  数据集分布: {dict(Counter(r['dataset'] for r in rows))}")
+        print(f"  天气分布(acdc): {dict(Counter(r.get('weather') for r in rows if r['dataset']=='acdc'))}")
         print(f"{'='*70}")
-    
-    all_images_by_source = {}
-    total_available = 0
-    
-    # 先统计每个数据集可用的图片数量
-    for source in calibration_sources:
-        dir_path = resolve(source["dir"])
-        images = find_all_images_in_dir(dir_path, source["recursive"])
-        all_images_by_source[source["name"]] = images
-        total_available += len(images)
-        if verbose:
-            print(f"  {source['name']:<20}: {len(images)} 张图片 (权重: {source['weight']:.0%})")
-    
-    if verbose:
-        print(f"  {'总计可用':<20}: {total_available} 张图片")
-        print(f"{'='*70}")
-    
-    if total_available == 0:
-        print("❌ 错误: 未找到任何校准图片")
-        return []
-    
-    # 按权重分配每个数据集的样本数
+
     calibration_data = []
-    collected_stats = []
-    
-    for source in calibration_sources:
-        source_name = source["name"]
-        weight = source["weight"]
-        images = all_images_by_source[source_name]
-        
-        if not images:
-            continue
-        
-        # 计算该数据集应采集的样本数
-        target_count = int(total_samples * weight)
-        # 如果该数据集图片不足，则取全部
-        actual_count = min(target_count, len(images))
-        
-        # 随机采样（确保多样性）
-        if len(images) > actual_count:
-            sampled_images = random.sample(images, actual_count)
-        else:
-            sampled_images = images
-        
-        if verbose:
-            print(f"  从 {source_name} 采样 {actual_count} 张...")
-        
-        # 预处理图片
-        for img_path in sampled_images:
-            processed = preprocess_image(img_path, input_size)
-            if processed is not None:
-                calibration_data.append(processed)
-        
-        collected_stats.append((source_name, actual_count, len(sampled_images)))
-    
+    for r in rows:
+        processed = preprocess_image(root / r["image"], input_size)
+        if processed is not None:
+            calibration_data.append(processed)
+
     if verbose:
-        print(f"\n  实际收集: {len(calibration_data)} 张校准图片")
-        print(f"  数据来源分布:")
-        for name, target, actual in collected_stats:
-            print(f"    - {name}: {actual} 张")
-    
+        print(f"  实际收集: {len(calibration_data)} 张校准图片")
+    if len(calibration_data) < 50:
+        print(f"⚠️  校准图不足 50 张（当前 {len(calibration_data)}），量化精度可能不稳——检查 dataset_root")
+
     return calibration_data
 
 
@@ -256,7 +209,8 @@ def main() -> None:
     parser = argparse.ArgumentParser(description="road-adas 模型量化（全面覆盖版）")
     parser.add_argument("--precision", type=str, default="INT8", choices=["FP16", "INT8"], help="目标精度")
     parser.add_argument("--num_samples", type=int, default=1000, help="校准样本数量（建议 1000）")
-    parser.add_argument("--input_size", type=str, default="1024,1024", help="输入尺寸 (H,W)")
+    parser.add_argument("--input_size", type=str, default="512,896",
+                        help="输入尺寸 (H,W)；默认 512,896 = road-adas 实际部署尺寸（勿用 1024）")
     parser.add_argument("--seed", type=int, default=42, help="随机种子（确保可重复）")
     args = parser.parse_args()
     
@@ -336,8 +290,8 @@ def main() -> None:
         print(f"    - 压缩比: {original_size_mb/model_size_mb:.2f}x")
         
         print(f"\n  下一步:")
-        print(f"    运行精度对比测试:")
-        print(f"    python scripts/vision/compare_precision_road_adas.py --num_samples 50")
+        print(f"    用 eval_seg.py 出 FP32 vs INT8 road IoU 对比:")
+        print(f"    python scripts/vision/eval_seg.py --models road-adas   # 切换 INT8 模型路径后重跑")
     else:
         print(f"\n❌ 量化失败")
 
