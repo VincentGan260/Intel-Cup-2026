@@ -35,6 +35,7 @@ from src.fusion.data_types import SystemState, now
 from src.fusion.risk_level import RiskLevelClassifier
 from src.fusion.risk_model import RiskModel
 from src.fusion.synchronizer import Synchronizer
+from src.fusion.vision_radar_fusion import VisionRadarFusion
 from src.debug.console_viewer import ConsoleViewer
 from src.utils.logger import CsvLogger
 
@@ -374,6 +375,7 @@ def main():
     # ── 依赖模块 ──
     sync = Synchronizer(vision_enabled=vision_is_active)
     risk_model = RiskModel()
+    vr_fusion = VisionRadarFusion()   # 视觉-雷达目标级融合（持续性跨帧，故在循环外持有）
     classifier = RiskLevelClassifier()
     viewer = ConsoleViewer()
     logger = CsvLogger(log_file)
@@ -416,6 +418,25 @@ def main():
             if vision_data is not None:
                 sync.update_vision(vision_data)
             fusion = sync.build_frame()
+
+            # 3.5 视觉-雷达目标级融合：用融合后的 R_obs（雷达真实距离/TTC + 仅雷达未知障碍）
+            #     覆盖 R_obs。雷达有效即运行——视觉失效/未启用时以"纯雷达"兜底（B 方案），
+            #     摄像头/模型挂掉雷达仍报警。异常时安全退回原值。
+            if radar.valid:
+                try:
+                    vres = vision_adapter.get_latest_vision_result() if (
+                        vision_is_active and vision_adapter) else None
+                    fused_out = vr_fusion.fuse_vision_result(vres, radar)
+                    if fused_out is not None:
+                        # R_obs 现为"视觉+雷达"统一障碍物风险；置 enabled/valid 让 risk_model 采用
+                        fusion.vision.max_visual_risk = fused_out.max_risk
+                        fusion.vision_enabled = True
+                        fusion.vision.valid = True
+                        if fused_out.n_radar_only > 0:
+                            print(f"  [融合] 雷达兜底未知障碍 ×{fused_out.n_radar_only}"
+                                  f"（视觉未识别/失效，已计入风险）")
+                except Exception as e:
+                    print(f"  [融合] 跳过(异常)，退回原 R_obs: {e}")
 
             # 4. 风险融合
             risk_items, weights = risk_model.compute(fusion)

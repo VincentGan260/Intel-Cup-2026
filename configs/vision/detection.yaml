@@ -6,10 +6,10 @@ source: https://ultralytics.com/images/bus.jpg
 
 # YOLO 模型推理参数。
 detector:
-  # Ultralytics will download the weight automatically when supported.
-  # You can change this to yolov8n.pt if yolo26n.pt is unavailable locally.
-  # 模型权重路径。若 yolo26n.pt 暂时不可用，可改成 yolov8n.pt 先跑通流程。
-  model_path: models/yolo26n_openvino_model
+  # 模型权重路径（OpenVINO 目录）。
+  # ★ 已切到微调 v2（单类障碍物，recall 翻倍）。FP16 在 models/yolo26n_v2_fp16_openvino_model。
+  #   基础 COCO 版仍在 models/yolo26n_openvino_model（作基线对照）。
+  model_path: models/yolo26n_v2_openvino_model
 
   # 置信度阈值：越高越严格，低置信度目标会被过滤。
   confidence: 0.25

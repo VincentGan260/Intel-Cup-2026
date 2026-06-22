@@ -59,11 +59,16 @@ def parse_radar_frame(data: bytes) -> Optional[dict]:
         return None
 
     target_count = payload[0]
+    # 完整性校验：payload = 目标数(1) + 报警(1) + 目标×5。长度不符即坏帧（防错位把虚高
+    # target_count 解析成"看似有效"的垃圾目标）。alarm_info = payload[1]（硬件报警位）。
+    expected_len = 2 + target_count * 5
+    if len(payload) < expected_len:
+        return None
+    alarm_info = payload[1]
+
     targets = []
     for i in range(target_count):
         offset = 2 + i * 5
-        if offset + 5 > len(payload):
-            break
         t = payload[offset : offset + 5]
         angle_raw = t[0]
         distance = t[1]
@@ -73,6 +78,8 @@ def parse_radar_frame(data: bytes) -> Optional[dict]:
 
         angle = angle_raw - 0x80
         speed_mps = speed_kmh / 3.6
+        # ⚠️ 待真机确认：手册「速度方向」表9(01=靠近) 与数据实例(00=靠近) 矛盾，
+        # 此处按【数据实例】取 00=靠近(负=接近)。上真机用已知逼近目标核对，取反会漏报。
         if speed_dir == 0:  # 靠近
             relative_speed_mps = -speed_mps
         else:  # 远离
@@ -88,7 +95,7 @@ def parse_radar_frame(data: bytes) -> Optional[dict]:
             }
         )
 
-    return {"targets": targets}
+    return {"targets": targets, "alarm": int(alarm_info)}
 
 
 def _calculate_ttc(distance_m: float, relative_speed_mps: float) -> float:

@@ -83,10 +83,11 @@ segmentation:
 # -------------------------- 模型（各精度路径）--------------------------
 models:
   detection:
-    pytorch: yolo26n.pt                                       # 一致性抽查用
-    fp32:    models/yolo26n_openvino_model/yolo26n.xml        # 精度基线
-    fp16:    models/yolo26n_fp16_openvino_model/yolo26n.xml   # FP16 转换产出
-    int8:    models/yolo26n_int8_openvino_model/yolo26n.xml   # 量化后产出（暂不存在）
+    # ★ 已切微调 v2（部署模型）。基础 COCO 版结果见 det_obstacle_base_v2m.json（基线已存档）。
+    pytorch: runs/finetune/yolo26n_obstacle_v2/weights/best.pt    # 微调 v2（一致性抽查/再导出用）
+    fp32:    models/yolo26n_v2_openvino_model/best.xml            # 微调 v2 FP32（精度/部署）
+    fp16:    models/yolo26n_v2_fp16_openvino_model/best.xml       # 微调 v2 FP16（端侧延迟轮）
+    int8:    models/yolo26n_int8_openvino_model/yolo26n.xml       # 量化产出（重跑量化轮后更新）
   segmentation:
     pidnet_fp32:   models/openvino/pidnet-s/pidnet-s.xml
     pidnet_fp16:   models/openvino/pidnet-s-fp16/pidnet-s.xml      # FP16 转换产出
