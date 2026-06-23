@@ -13,16 +13,27 @@
 from __future__ import annotations
 
 import math
+from pathlib import Path
 from typing import Dict, Optional, Tuple
 
 import yaml
 
 from src.fusion.data_types import FusionInput
 
+_PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
+
+
+def _resolve_path(path: str) -> str:
+    """将相对路径解析为基于项目根的绝对路径。"""
+    p = Path(path)
+    if not p.is_absolute():
+        p = _PROJECT_ROOT / p
+    return str(p)
+
 
 def _load_risk_params(path: str = "configs/risk_params.yaml") -> dict:
     """加载风险融合参数。"""
-    with open(path, "r", encoding="utf-8") as f:
+    with open(_resolve_path(path), "r", encoding="utf-8") as f:
         return yaml.safe_load(f)
 
 
@@ -96,7 +107,7 @@ def calculate_risk_pose(fusion: FusionInput) -> float:
 
 def calculate_risk_speed(
     fusion: FusionInput,
-    max_speed_kmh: float = 25.0,
+    max_speed_kmh: float = 35.0,
 ) -> float:
     """速度风险 R_speed [0, 1]。
 

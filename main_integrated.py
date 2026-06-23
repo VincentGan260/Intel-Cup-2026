@@ -201,6 +201,7 @@ def _make_state(
         imu_bump_score=imu.bump_score,
         imu_tilt_score=imu.tilt_score,
         radar_valid=radar.valid,
+        radar_target_count=len(radar.targets),
         radar_nearest_m=radar.nearest_distance_m,
         radar_min_ttc=radar.min_ttc,
         vision_valid=vision_data.valid if vision_data else False,

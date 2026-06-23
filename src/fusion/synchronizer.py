@@ -8,6 +8,7 @@
 
 from __future__ import annotations
 
+from pathlib import Path
 from typing import Optional
 
 from src.fusion.data_types import (
@@ -19,15 +20,23 @@ from src.fusion.data_types import (
     now,
 )
 
+_PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
+
 
 class Synchronizer:
     """传感器数据同步器。
 
     维护每个传感器「最新有效帧」，按需组装 FusionInput。
+    支持 max_age_sec 过期剔除：某传感器数据超过此时间未被更新，自动降级为 invalid。
     """
 
-    def __init__(self, vision_enabled: bool = False) -> None:
+    def __init__(
+        self,
+        vision_enabled: bool = False,
+        max_age_sec: float = 1.0,
+    ) -> None:
         self.vision_enabled = vision_enabled
+        self.max_age_sec = max_age_sec
         self._latest_gps: Optional[GPSData] = None
         self._latest_imu: Optional[IMUData] = None
         self._latest_radar: Optional[RadarData] = None
@@ -53,12 +62,21 @@ class Synchronizer:
         """基于各传感器最新数据组装当前融合帧。
 
         如果某传感器从未更新过数据，将使用该数据类的默认无效值。
+        如果某传感器最新数据超过 max_age_sec 未被更新，强制标记为 invalid。
         """
         ts = now()
-        gps = self._latest_gps if self._latest_gps is not None else GPSData(timestamp=ts)
-        imu = self._latest_imu if self._latest_imu is not None else IMUData(timestamp=ts)
-        radar = self._latest_radar if self._latest_radar is not None else RadarData(timestamp=ts)
-        vision = self._latest_vision if self._latest_vision is not None else VisionData(timestamp=ts)
+
+        def _or_default(data, factory):
+            if data is not None and (ts - data.timestamp) <= self.max_age_sec:
+                return data
+            d = factory(timestamp=ts)
+            d.valid = False
+            return d
+
+        gps = _or_default(self._latest_gps, GPSData)
+        imu = _or_default(self._latest_imu, IMUData)
+        radar = _or_default(self._latest_radar, RadarData)
+        vision = _or_default(self._latest_vision, VisionData)
 
         return FusionInput(
             timestamp=ts,

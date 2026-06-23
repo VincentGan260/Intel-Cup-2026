@@ -39,7 +39,7 @@ distance:
 
 # — 速度风险 R_speed —
 speed:
-  max_speed_kmh: 25.0 # R_speed 归一化上限：R_speed = min(speed / max_speed_kmh, 1.0)
+  max_speed_kmh: 35.0 # R_speed 归一化上限：R_speed = min(speed / max_speed_kmh, 1.0)
   safe_kmh: 15.0      # 低于此速度视为安全速度
   dangerous_kmh: 35.0 # 高于此速度视为危险速度
 

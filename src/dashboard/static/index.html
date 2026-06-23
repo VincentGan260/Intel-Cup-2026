@@ -52,26 +52,29 @@
     height: calc(100vh - 48px);
   }
 
-  /* 左：视频 */
+  /* 左：视频 — 占 70% 宽度 */
   .video-col {
-    flex: 1;
+    flex: 0 0 70%;
     min-width: 0;
     display: flex;
-    align-items: center;
-    justify-content: center;
+    align-items: stretch;
+    justify-content: stretch;
     background: #000;
     position: relative;
+    overflow: hidden;
   }
   .video-wrapper {
     position: relative;
-    display: inline-block;
-    max-width: 100%;
-    max-height: 100%;
+    width: 100%;
+    height: 100%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
   }
   .video-wrapper img {
     display: block;
-    max-width: 100%;
-    max-height: 100%;
+    width: 100%;
+    height: 100%;
     object-fit: contain;
   }
   .video-wrapper canvas {
@@ -101,9 +104,10 @@
   }
   .video-mode-btn:hover { opacity: 0.85; }
 
-  /* 右：面板 */
+  /* 右：面板 — 占 30% 宽度 */
   .panel {
-    width: 360px;
+    flex: 0 0 30%;
+    min-width: 320px;
     background: var(--card);
     border-left: 1px solid var(--border);
     overflow-y: auto;

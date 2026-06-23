@@ -8,14 +8,25 @@
 
 from __future__ import annotations
 
+from pathlib import Path
 from typing import Dict, Tuple
 
 import yaml
 
+_PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
+
+
+def _resolve_path(path: str) -> str:
+    """将相对路径解析为基于项目根的绝对路径。"""
+    p = Path(path)
+    if not p.is_absolute():
+        p = _PROJECT_ROOT / p
+    return str(p)
+
 
 def _load_thresholds(config_path: str = "configs/risk_params.yaml") -> Dict[str, float]:
     """从配置文件加载风险阈值。"""
-    with open(config_path, "r", encoding="utf-8") as f:
+    with open(_resolve_path(config_path), "r", encoding="utf-8") as f:
         params = yaml.safe_load(f)
     return params["risk_thresholds"]
 

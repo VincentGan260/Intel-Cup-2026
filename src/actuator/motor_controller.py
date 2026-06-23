@@ -15,6 +15,7 @@
 from __future__ import annotations
 
 import time
+from pathlib import Path
 from typing import Dict, Optional
 
 import yaml
@@ -22,10 +23,20 @@ import yaml
 from src.actuator.alert_pattern import pattern_for_level, ALERT_LABELS
 from src.fusion.data_types import MotorCommand
 
+_PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
+
+
+def _resolve_path(path: str) -> str:
+    """将相对路径解析为基于项目根的绝对路径。"""
+    p = Path(path)
+    if not p.is_absolute():
+        p = _PROJECT_ROOT / p
+    return str(p)
+
 
 def _load_motor_config(config_path: str = "configs/risk_params.yaml") -> dict:
     """加载马达控制配置。"""
-    with open(config_path, "r", encoding="utf-8") as f:
+    with open(_resolve_path(config_path), "r", encoding="utf-8") as f:
         params = yaml.safe_load(f)
     return params.get("motor", {})
 
@@ -127,8 +138,8 @@ class MotorController:
             self._is_medium_playing = False
             return
 
-        # 检查冷却
-        if self._last_level == command.risk_level:
+        # 检查冷却（level=2 高风险不受同级冷却限制，保证持续强震）
+        if command.risk_level != 2 and self._last_level == command.risk_level:
             elapsed = now - self._last_level_time
             if elapsed < self.min_interval_sec:
                 return  # 冷却未到

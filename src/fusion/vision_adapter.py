@@ -227,7 +227,7 @@ class VisionAdapter:
                 vehicle_count=vehicle_count,
                 max_confidence=max_conf,
                 drivable_area_ratio=round(drivable_ratio, 4),
-                max_visual_risk=vision_result.max_visual_risk,
+                max_visual_risk=max(0.0, min(1.0, vision_result.max_visual_risk)),
             )
 
         except Exception as e:

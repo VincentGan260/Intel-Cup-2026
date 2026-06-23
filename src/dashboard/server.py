@@ -13,6 +13,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import threading
 import time
 from pathlib import Path
@@ -20,7 +21,7 @@ from typing import Optional
 
 import numpy as np
 
-from fastapi import FastAPI
+from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.responses import HTMLResponse, StreamingResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
@@ -34,6 +35,56 @@ _state_store = None  # type: Optional[object]  # DashboardStateStore
 # ── VisionResult 缓存（状态线程推理后写入，video_annotated_feed 每帧读取绘制） ──
 _vision_result_cache: Optional[object] = None  # VisionResult
 _vr_lock = threading.Lock()
+
+# ── 共享帧抓取器（单摄像头 → 多消费者，防止帧被瓜分） ──
+_shared_jpeg: Optional[bytes] = None
+_shared_bgr: Optional[np.ndarray] = None
+_shared_lock = threading.Lock()
+_grabber_alive = False
+_grabber_thread: Optional[threading.Thread] = None
+
+
+def _ensure_grabber_started() -> None:
+    """惰性启动共享帧抓取线程。"""
+    global _grabber_thread, _grabber_alive
+    if _grabber_alive:
+        return
+    _grabber_alive = True
+    _grabber_thread = threading.Thread(target=_grab_loop, daemon=True, name="frame-grabber")
+    _grabber_thread.start()
+
+
+def _grab_loop() -> None:
+    """后台持续抓帧，缓存最新 JPEG 和 BGR，供所有视频端点消费。"""
+    global _shared_jpeg, _shared_bgr
+    import cv2
+    while _grabber_alive:
+        jpeg_bytes = b""
+        bgr = None
+        if _camera is not None:
+            try:
+                jpeg_bytes = _camera.get_jpeg_frame()
+                if jpeg_bytes:
+                    buf = np.frombuffer(jpeg_bytes, np.uint8)
+                    bgr = cv2.imdecode(buf, cv2.IMREAD_COLOR)
+            except Exception:
+                pass
+        with _shared_lock:
+            if jpeg_bytes:
+                _shared_jpeg = jpeg_bytes
+            if bgr is not None:
+                _shared_bgr = bgr
+        time.sleep(0.03)  # ~30 FPS
+
+
+def _get_shared_jpeg() -> bytes:
+    with _shared_lock:
+        return _shared_jpeg or b""
+
+
+def _get_shared_bgr() -> Optional[np.ndarray]:
+    with _shared_lock:
+        return _shared_bgr
 
 # ── FastAPI 应用 ──
 app = FastAPI(title="Rider Warning Dashboard", version="0.1.0")
@@ -62,27 +113,27 @@ async def video_feed():
     """MJPEG 视频流端点。
 
     浏览器 <img src="/video_feed"> 自动刷新。
+    帧来自共享抓取器，与 video_annotated_feed 共用同一路摄像头数据。
     """
 
     def _generate():
-        while True:
-            frame_bytes = b""
-            if _camera is not None:
-                try:
-                    frame_bytes = _camera.get_jpeg_frame()
-                except Exception:
-                    pass
+        _ensure_grabber_started()
+        try:
+            while True:
+                frame_bytes = _get_shared_jpeg()
+                if not frame_bytes:
+                    time.sleep(0.05)
+                    continue
 
-            if not frame_bytes:
-                frame_bytes = b""
-
-            yield (
-                b"--frame\r\n"
-                b"Content-Type: image/jpeg\r\n\r\n"
-                + frame_bytes
-                + b"\r\n"
-            )
-            time.sleep(0.05)  # ~20 FPS
+                yield (
+                    b"--frame\r\n"
+                    b"Content-Type: image/jpeg\r\n\r\n"
+                    + frame_bytes
+                    + b"\r\n"
+                )
+                time.sleep(0.05)  # ~20 FPS
+        except GeneratorExit:
+            pass  # 客户端断开，正常退出
 
     return StreamingResponse(
         _generate(),
@@ -155,45 +206,81 @@ async def video_annotated_feed():
             return bgr
 
     def _generate():
-        while True:
-            frame_bytes = b""
-            if _camera is not None:
-                try:
-                    # 读取摄像头原始帧
-                    raw_jpeg = _camera.get_jpeg_frame()
-                    # 尝试叠加标注
-                    with _vr_lock:
-                        vr = _vision_result_cache
-                    if vr is not None and raw_jpeg:
-                        import cv2
-                        buf = np.frombuffer(raw_jpeg, np.uint8)
-                        bgr = cv2.imdecode(buf, cv2.IMREAD_COLOR)
-                        if bgr is not None:
+        _ensure_grabber_started()
+        try:
+            while True:
+                frame_bytes = b""
+                with _vr_lock:
+                    vr = _vision_result_cache
+                if vr is not None:
+                    bgr = _get_shared_bgr()
+                    if bgr is not None:
+                        try:
+                            import cv2
                             annotated = _draw_on_frame(bgr, vr)
                             ret, enc = cv2.imencode(".jpg", annotated,
                                                     [cv2.IMWRITE_JPEG_QUALITY, 80])
                             if ret:
                                 frame_bytes = enc.tobytes()
-                    if not frame_bytes:
-                        frame_bytes = raw_jpeg
-                except Exception:
-                    pass
+                        except Exception:
+                            pass
+                if not frame_bytes:
+                    frame_bytes = _get_shared_jpeg()
 
-            if not frame_bytes:
-                frame_bytes = b""
+                if not frame_bytes:
+                    time.sleep(0.03)
+                    continue
 
-            yield (
-                b"--frame\r\n"
-                b"Content-Type: image/jpeg\r\n\r\n"
-                + frame_bytes
-                + b"\r\n"
-            )
-            time.sleep(0.03)  # ~30 FPS
+                yield (
+                    b"--frame\r\n"
+                    b"Content-Type: image/jpeg\r\n\r\n"
+                    + frame_bytes
+                    + b"\r\n"
+                )
+                time.sleep(0.03)  # ~30 FPS
+        except GeneratorExit:
+            pass  # 客户端断开，正常退出
 
     return StreamingResponse(
         _generate(),
         media_type="multipart/x-mixed-replace; boundary=frame",
     )
+
+
+@app.websocket("/ws/state")
+async def ws_state(websocket: WebSocket) -> None:
+    """WebSocket 端点，后台线程状态变化时主动推送到前端。
+
+    替代前端 HTTP 轮询 /api/state，减少冗余请求。
+    连接建立后立即推送当前状态，之后每检测到版本号变化即推送。
+    """
+    await websocket.accept()
+    last_version = -1
+    try:
+        while True:
+            # 检查版本号是否变化
+            new_version = -1
+            current_state = None
+            if _state_store is not None:
+                new_version = _state_store.get_version()
+                if new_version != last_version:
+                    current_state = _state_store.get_state()
+
+            if current_state is not None:
+                await websocket.send_json(current_state)
+                last_version = new_version
+
+            # 等 200ms 或收到客户端消息（支持 ping/pong）
+            try:
+                data = await asyncio.wait_for(websocket.receive_text(), timeout=0.2)
+                if data == "ping":
+                    await websocket.send_text("pong")
+            except asyncio.TimeoutError:
+                pass
+            except WebSocketDisconnect:
+                break
+    except WebSocketDisconnect:
+        pass
 
 
 @app.get("/api/state")

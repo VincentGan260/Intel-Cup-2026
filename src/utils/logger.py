@@ -89,7 +89,7 @@ class CsvLogger:
             f"{state.imu_bump_score:.3f}",
             f"{state.imu_tilt_score:.3f}",
             str(state.radar_valid),
-            str(state.vision_object_count),
+            str(state.radar_target_count),
             f"{state.radar_nearest_m:.2f}",
             f"{state.radar_min_ttc:.2f}",
             str(state.vision_valid),

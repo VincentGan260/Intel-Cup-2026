@@ -209,6 +209,7 @@ class SystemState:
 
     # — 雷达 —
     radar_valid: bool = False
+    radar_target_count: int = 0
     radar_nearest_m: float = -1.0
     radar_min_ttc: float = -1.0
 
