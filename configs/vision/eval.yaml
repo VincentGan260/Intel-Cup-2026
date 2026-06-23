@@ -87,7 +87,7 @@ models:
     pytorch: runs/finetune/yolo26n_obstacle_v2/weights/best.pt    # 微调 v2（一致性抽查/再导出用）
     fp32:    models/yolo26n_v2_openvino_model/best.xml            # 微调 v2 FP32（精度/部署）
     fp16:    models/yolo26n_v2_fp16_openvino_model/best.xml       # 微调 v2 FP16（端侧延迟轮）
-    int8:    models/yolo26n_int8_openvino_model/yolo26n.xml       # 量化产出（重跑量化轮后更新）
+    int8:    models/yolo26n_v2_int8_openvino_model/best.xml       # 微调 v2 INT8（nncf MIXED, 1000张真实图校准, 3.78x压缩）
   segmentation:
     pidnet_fp32:   models/openvino/pidnet-s/pidnet-s.xml
     pidnet_fp16:   models/openvino/pidnet-s-fp16/pidnet-s.xml      # FP16 转换产出
