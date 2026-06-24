@@ -83,11 +83,18 @@ segmentation:
 # -------------------------- 模型（各精度路径）--------------------------
 models:
   detection:
-    # ★ 已切微调 v2（部署模型）。基础 COCO 版结果见 det_obstacle_base_v2m.json（基线已存档）。
+    # ★ 微调 v2（部署模型）的三精度。FP32/FP16=ultralytics export(imgsz640,dynamic=F)，
+    #   INT8=nncf MIXED + 1000张真实BDD/IDD/DAWN校准。
     pytorch: runs/finetune/yolo26n_obstacle_v2/weights/best.pt    # 微调 v2（一致性抽查/再导出用）
     fp32:    models/yolo26n_v2_openvino_model/best.xml            # 微调 v2 FP32（精度/部署）
     fp16:    models/yolo26n_v2_fp16_openvino_model/best.xml       # 微调 v2 FP16（端侧延迟轮）
-    int8:    models/yolo26n_v2_int8_openvino_model/best.xml       # 微调 v2 INT8（nncf MIXED, 1000张真实图校准, 3.78x压缩）
+    int8:    models/yolo26n_v2_int8_openvino_model/best.xml       # 微调 v2 INT8（3.78x压缩）
+    # —— 基础 COCO yolo26n 三精度：用与 v2 完全相同的 recipe 重产（仅权重不同），可逐精度对比 ——
+    base_fp32: models/yolo26n_base_openvino_model/yolo26n.xml         # 基础 FP32（同 recipe）
+    base_fp16: models/yolo26n_base_fp16_openvino_model/yolo26n.xml    # 基础 FP16（同 recipe，ultralytics half）
+    base_int8: models/yolo26n_base_int8_openvino_model/best.xml       # 基础 INT8（同 nncf recipe）
+    # ⚠️ 旧的不一致变体勿用于对比：models/openvino/yolo26n-int8 / -int8-v2 / -reliable-int8、
+    #    models/yolo26n_fp16_openvino_model（旧 convert_fp16 IR→IR，与上面 recipe 不一致）。
   segmentation:
     pidnet_fp32:   models/openvino/pidnet-s/pidnet-s.xml
     pidnet_fp16:   models/openvino/pidnet-s-fp16/pidnet-s.xml      # FP16 转换产出

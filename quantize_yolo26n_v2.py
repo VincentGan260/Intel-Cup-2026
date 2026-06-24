@@ -9,6 +9,7 @@
 运行（需 nncf）：
     D:/Anaconda_envs/envs/intel/python.exe quantize_yolo26n_v2.py
 """
+import argparse
 import sys
 from pathlib import Path
 
@@ -23,10 +24,16 @@ if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 from scripts.dataset_paths import load_eval_config, resolve  # noqa: E402
 
-# ========== 配置 ==========
-# 默认量化部署模型（微调 v2）；要量化 COCO 基线改成 PROJECT_ROOT/"yolo26n.pt"
-MODEL_PATH = PROJECT_ROOT / "runs/finetune/yolo26n_obstacle_v2/weights/best.pt"
-OUTPUT_NAME = "yolo26n_obstacle_v2_int8"   # 输出 xml/bin 名
+# ========== 配置（可被命令行覆盖）==========
+# 默认量化部署模型（微调 v2）；量化 COCO 基线用 --weights yolo26n.pt --out yolo26n_base_int8
+_ap = argparse.ArgumentParser(description="YOLO26n INT8 量化（nncf MIXED，真实图校准）")
+_ap.add_argument("--weights", default="runs/finetune/yolo26n_obstacle_v2/weights/best.pt",
+                 help="权重路径（相对项目根）。基础 COCO 基线用 yolo26n.pt")
+_ap.add_argument("--out", default="yolo26n_obstacle_v2_int8", help="输出 xml/bin 名（不含扩展名）")
+_args, _ = _ap.parse_known_args()
+
+MODEL_PATH = PROJECT_ROOT / _args.weights
+OUTPUT_NAME = _args.out     # 输出 xml/bin 名
 CALIB_SAMPLES = 1000
 IMG_SIZE = 640
 MIN_CALIB = 50            # 校准图下限，低于此直接报错（防静默退化）

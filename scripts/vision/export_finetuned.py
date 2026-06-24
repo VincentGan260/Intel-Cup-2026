@@ -42,7 +42,9 @@ def export_one(weights: Path, half: bool, dst_dir: Path, imgsz: int) -> None:
 def main() -> None:
     ap = argparse.ArgumentParser(description="导出微调 v2 检测模型为 OpenVINO FP32+FP16")
     ap.add_argument("--weights", default="runs/finetune/yolo26n_obstacle_v2/weights/best.pt",
-                    help="微调权重路径（相对项目根）")
+                    help="权重路径（相对项目根）。基础 COCO 基线用 yolo26n.pt")
+    ap.add_argument("--tag", default="v2",
+                    help="输出目录命名 models/yolo26n_{tag}_openvino_model（基线用 base）")
     ap.add_argument("--imgsz", type=int, default=640)
     args = ap.parse_args()
 
@@ -52,10 +54,10 @@ def main() -> None:
 
     models = PROJECT_ROOT / "models"
     print("=" * 60)
-    print(f"导出微调 v2 检测模型：{weights.name}")
+    print(f"导出检测模型：{weights.name}  tag={args.tag}（FP32+FP16，同一 recipe）")
     print("=" * 60)
-    export_one(weights, False, models / "yolo26n_v2_openvino_model", args.imgsz)
-    export_one(weights, True, models / "yolo26n_v2_fp16_openvino_model", args.imgsz)
+    export_one(weights, False, models / f"yolo26n_{args.tag}_openvino_model", args.imgsz)
+    export_one(weights, True, models / f"yolo26n_{args.tag}_fp16_openvino_model", args.imgsz)
     print("=" * 60)
     print("完成。detection.yaml 的 model_path 指向 models/yolo26n_v2_openvino_model 即用 FP32；")
     print("FP16 模型在 models/yolo26n_v2_fp16_openvino_model（端侧延迟轮 iGPU 用）。")
