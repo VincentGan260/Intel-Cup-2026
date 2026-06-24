@@ -16,6 +16,7 @@ from src.vision.segmentation.postprocess import (
     build_segmentation_result_from_label_map,
     label_map_to_drivable_mask,
     logits_chw_to_label_map,
+    refine_drivable_mask,
 )
 from src.vision.segmentation.segmenter import build_segmenter_from_config
 
@@ -31,5 +32,6 @@ __all__ = [
     "calculate_drivable_ratio",
     "logits_chw_to_label_map",
     "label_map_to_drivable_mask",
+    "refine_drivable_mask",
     "build_segmentation_result_from_label_map",
 ]

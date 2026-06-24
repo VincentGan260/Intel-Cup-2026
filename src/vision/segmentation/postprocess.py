@@ -24,14 +24,64 @@ def label_map_to_drivable_mask(
     return (label_map_hw == int(road_class_index)).astype(np.uint8)
 
 
+def refine_drivable_mask(
+    mask: np.ndarray,
+    *,
+    morph_kernel: int = 5,
+    do_open: bool = True,
+    do_close: bool = True,
+    keep_largest: bool = False,
+) -> np.ndarray:
+    """对 road 二值掩码做轻量形态学清理（开运算去飞点 + 闭运算填空洞）。
+
+    动机：argmax 原始掩码会有孤立误判点（反光/远处小斑块）和内部小空洞。
+    下游「雷达路面门控」按某一列方位带的 road 像素占比判定，单片噪声/空洞
+    就可能翻转判定 → 误报或漏报。轻量形态学让门控更稳。
+
+    纯 CV、512×896 上约 1~2ms，不增加任何模型推理（端侧零额外推理预算内）。
+      - do_open/do_close：开/闭运算开关，默认都开。
+      - keep_largest：仅保留最大连通域。默认关——可能误删合法的分叉可行驶区，
+        需要时再开（如只关心正前主路面）。
+    """
+    if mask is None or mask.size == 0:
+        return mask
+    if morph_kernel < 3 or not (do_open or do_close or keep_largest):
+        return mask
+
+    m = (mask > 0).astype(np.uint8)
+    kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (morph_kernel, morph_kernel))
+    if do_open:
+        m = cv2.morphologyEx(m, cv2.MORPH_OPEN, kernel)
+    if do_close:
+        m = cv2.morphologyEx(m, cv2.MORPH_CLOSE, kernel)
+    if keep_largest:
+        num, labels, stats, _ = cv2.connectedComponentsWithStats(m, connectivity=8)
+        if num > 1:  # 0=背景，取前景中面积最大的连通域
+            largest = 1 + int(np.argmax(stats[1:, cv2.CC_STAT_AREA]))
+            m = (labels == largest).astype(np.uint8)
+    return m.astype(np.uint8)
+
+
 def build_segmentation_result_from_label_map(
     label_map_model_hw: np.ndarray,
     image_size_wh: tuple[int, int],
     road_class_index: int,
+    *,
+    refine: bool = True,
+    morph_kernel: int = 5,
+    keep_largest: bool = False,
 ) -> SegmentationResult:
-    """将模型分辨率下的 label 图放大到原图，并生成 `SegmentationResult`。"""
+    """将模型分辨率下的 label 图放大到原图，并生成 `SegmentationResult`。
+
+    refine=True（默认）对 road 掩码做形态学开+闭清理（见 refine_drivable_mask），
+    主要为下游雷达路面门控提供更稳的掩码；传 refine=False 可一键关闭退回原始 argmax。
+    """
     label_full = resize_mask_to_image(label_map_model_hw, image_size_wh)
     drivable = label_map_to_drivable_mask(label_full, road_class_index)
+    if refine:
+        drivable = refine_drivable_mask(
+            drivable, morph_kernel=morph_kernel, keep_largest=keep_largest,
+        )
     ratio = calculate_drivable_ratio(drivable)
     return SegmentationResult(
         drivable_mask=drivable,
