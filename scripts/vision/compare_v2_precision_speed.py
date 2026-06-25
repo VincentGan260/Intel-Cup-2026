@@ -45,6 +45,7 @@ SRC_RULES = {
 }
 
 MODEL_CONFIG = {
+    "v2_fp32": "models/yolo26n_v2_openvino_model/best.xml",
     "v2_fp16": "models/yolo26n_v2_fp16_openvino_model/best.xml",
     "v2_int8": "models/yolo26n_v2_int8_openvino_model/best.xml",
 }
@@ -455,10 +456,10 @@ def main():
     ap.add_argument("--no-speed", action="store_true", help="跳过速度测试")
     args = ap.parse_args()
 
-    print(f"V2 模型 FP16 vs INT8 精度与速度对比评测")
-    print(f"设备: {args.device}")
+    print(f"V2 模型 FP32 vs FP16 vs INT8 精度与速度对比评测")
+    print(f"设备: NPU")
     print(f"数据集: BDD + IDD + DAWN")
-    print(f"精度: FP16 vs INT8")
+    print(f"精度: FP32 vs FP16 vs INT8")
     if args.limit > 0:
         print(f"限制: 每源最多 {args.limit} 张")
 

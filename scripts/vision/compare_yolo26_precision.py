@@ -388,14 +388,14 @@ def main():
     print(f"YOLO26 模型精度对比评测")
     print(f"设备: {args.device}")
     print(f"数据集: BDD + IDD + DAWN")
-    print(f"精度: FP32 + FP16")
+    print(f"精度: FP32")
     if args.limit > 0:
         print(f"限制: 每源最多 {args.limit} 张")
 
     all_results = []
 
     for model_name in ["base", "v2"]:
-        for precision in ["fp32", "fp16"]:
+        for precision in ["fp32"]:  # 统一使用FP32进行对比
             result = evaluate_model(model_name, precision, args.device, args.limit)
             if result:
                 all_results.append(result)
