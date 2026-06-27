@@ -5,77 +5,184 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>骑手前向安全预警 Dashboard</title>
 <style>
+  /* ── iOS 26 Liquid Glass Theme ── */
   :root {
-    --bg: #0f1119;
-    --card: #1a1d2e;
-    --text: #e0e0e0;
-    --sub: #8890a4;
-    --green: #22c55e;
-    --yellow: #eab308;
-    --red: #ef4444;
-    --blue: #3b82f6;
-    --border: #2a2d3e;
+    --bg: #f2f2f7;
+    --text-primary: #1d1d1f;
+    --text-secondary: #6e6e73;
+    --text-tertiary: #aeaeb2;
+
+    --blue: #007aff;
+    --green: #34c759;
+    --yellow: #ff9f0a;
+    --red: #ff3b30;
+    --orange: #ff9500;
+
+    --green-subtle: rgba(52,199,89,0.1);
+    --yellow-subtle: rgba(255,159,10,0.1);
+    --red-subtle: rgba(255,59,48,0.1);
+
+    --glass-border-radius: 16px;
+
+    --font-sans: -apple-system, BlinkMacSystemFont, "SF Pro Display", "SF Pro Text", "Helvetica Neue", "PingFang SC", sans-serif;
+    --font-mono: "SF Mono", "Menlo", "Monaco", "JetBrains Mono", monospace;
+
+    --ease-apple: cubic-bezier(0.32, 0.72, 0, 1);
+    --dur-fast: 150ms;
+    --dur-normal: 250ms;
+    --dur-slow: 400ms;
   }
 
   * { margin: 0; padding: 0; box-sizing: border-box; }
 
   body {
-    font-family: "Segoe UI", "Microsoft YaHei", system-ui, sans-serif;
+    font-family: var(--font-sans);
     background: var(--bg);
-    color: var(--text);
+    color: var(--text-primary);
     height: 100vh;
     overflow: hidden;
+    -webkit-font-smoothing: antialiased;
+    animation: pageFadeIn var(--dur-slow) var(--ease-apple) both;
   }
 
-  /* 标题栏 */
+  /* ── Liquid Glass Mixin ── */
+  /* Core: translucent tinted bg + blur + saturate */
+  /* + inset box-shadow for light/dark edge highlights */
+  /* + radial gradient for specular highlight on top-left */
+  @keyframes pageFadeIn { from { opacity: 0; } to { opacity: 1; } }
+  @keyframes cardSlideUp {
+    from { opacity: 0; transform: translateY(14px) scale(0.98); }
+    to { opacity: 1; transform: translateY(0) scale(1); }
+  }
+  @keyframes scoreReveal {
+    from { opacity: 0; transform: scale(0.85); }
+    to { opacity: 1; transform: scale(1); }
+  }
+  @keyframes scoreBreathing {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.82; }
+  }
+  @keyframes indicatorPulse {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.45; }
+  }
+  @keyframes dotPulse {
+    0%, 100% { transform: scale(1); opacity: 1; }
+    50% { transform: scale(1.8); opacity: 0.3; }
+  }
+  @keyframes overlayFadeIn { from { opacity: 0; } to { opacity: 1; } }
+  @keyframes overlayBoxScale {
+    from { opacity: 0; transform: scale(0.92) translateY(8px); }
+    to { opacity: 1; transform: scale(1) translateY(0); }
+  }
+  @keyframes labelSlideUp {
+    from { opacity: 0; transform: translateY(10px); }
+    to { opacity: 1; transform: translateY(0); }
+  }
+  /* Subtle shimmer on glass surfaces */
+  @keyframes shimmer {
+    0% { background-position: -200% 0; }
+    100% { background-position: 200% 0; }
+  }
+
+  /* ── Header: Liquid Glass ── */
   .header {
-    background: var(--card);
-    border-bottom: 1px solid var(--border);
-    padding: 10px 24px;
+    position: relative;
+    background: rgba(255,255,255,0.45);
+    backdrop-filter: blur(14px) saturate(130%);
+    -webkit-backdrop-filter: blur(14px) saturate(130%);
+    border-bottom: 0.5px solid rgba(0,0,0,0.06);
+    padding: 0 24px;
     display: flex;
     align-items: center;
     justify-content: space-between;
-    height: 48px;
+    height: 52px;
+    z-index: 10;
+    animation: pageFadeIn var(--dur-slow) var(--ease-apple) both;
   }
-  .header h1 { font-size: 18px; font-weight: 600; }
-  .header .status-dot {
-    width: 8px; height: 8px; border-radius: 50%;
-    display: inline-block; margin-right: 6px;
+  /* Light top edge, dark bottom edge */
+  .header::before {
+    content: "";
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+    z-index: -1;
+    box-shadow:
+      inset 1px 1px 0px 0px rgba(255,255,255,0.6),
+      inset -1px -1px 0px 0px rgba(255,255,255,0.4);
+    background:
+      radial-gradient(circle at top left, rgba(255,255,255,0.25), transparent 25%),
+      radial-gradient(circle at top right, rgba(255,255,255,0.15), transparent 20%);
   }
-  .header .status-dot.online { background: var(--green); }
-  .header .status-dot.offline { background: var(--red); }
-  .header .status-text { font-size: 13px; color: var(--sub); }
+  .header h1 {
+    font-size: 17px;
+    font-weight: 600;
+    letter-spacing: -0.01em;
+    color: var(--text-primary);
+  }
+  .header-right { display: flex; align-items: center; gap: 10px; }
+  .header .status-pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 4px 12px;
+    border-radius: 980px;
+    background: var(--green-subtle);
+    font-size: 12px;
+    font-weight: 500;
+    color: var(--green);
+    transition: all 0.3s var(--ease-apple);
+    position: relative;
+  }
+  /* Glass pill: light edge highlight */
+  .header .status-pill::before {
+    content: "";
+    position: absolute;
+    inset: 0;
+    border-radius: 980px;
+    pointer-events: none;
+    box-shadow:
+      inset 1px 1px 0px 0px rgba(255,255,255,0.5),
+      inset -1px -1px 0px 0px rgba(255,255,255,0.3);
+  }
+  .header .status-pill.offline {
+    background: var(--red-subtle);
+    color: var(--red);
+  }
+  .header .status-pill-dot {
+    width: 6px; height: 6px;
+    border-radius: 50%;
+    background: currentColor;
+    animation: dotPulse 2.5s ease-in-out infinite;
+  }
+  .header .status-pill.offline .status-pill-dot { animation: none; }
 
-  /* 主布局 */
+  /* ── Main Layout ── */
   .main {
     display: flex;
-    height: calc(100vh - 48px);
+    height: calc(100vh - 52px);
   }
 
-  /* 左：视频 — 占 70% 宽度 */
+  /* ── Video Column ── */
   .video-col {
     flex: 0 0 70%;
     min-width: 0;
-    display: flex;
-    align-items: stretch;
-    justify-content: stretch;
-    background: #000;
+    background: #1c1c1e;
     position: relative;
     overflow: hidden;
   }
   .video-wrapper {
     position: relative;
-    width: 100%;
-    height: 100%;
+    width: 100%; height: 100%;
     display: flex;
     align-items: center;
     justify-content: center;
   }
   .video-wrapper img {
     display: block;
-    width: 100%;
-    height: 100%;
+    width: 100%; height: 100%;
     object-fit: contain;
+    transition: filter 0.6s var(--ease-apple);
   }
   .video-wrapper canvas {
     position: absolute;
@@ -83,178 +190,414 @@
     width: 100%; height: 100%;
     pointer-events: none;
   }
+  /* Ambient glow */
+  .video-col::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    background:
+      radial-gradient(ellipse at 20% 80%, rgba(0,122,255,0.12) 0%, transparent 50%),
+      radial-gradient(ellipse at 80% 20%, rgba(255,149,0,0.08) 0%, transparent 50%);
+    pointer-events: none;
+    z-index: 1;
+    opacity: 0.7;
+  }
   .video-label {
     position: absolute;
-    bottom: 8px; left: 12px;
-    font-size: 12px; color: rgba(255,255,255,0.5);
-    display: flex; align-items: center; gap: 6px; z-index: 5;
+    bottom: 16px;
+    left: 20px;
+    font-size: 13px;
+    color: rgba(255,255,255,0.45);
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    z-index: 5;
+    animation: labelSlideUp 0.5s var(--ease-apple) 0.6s both;
   }
   .video-mode-btn {
     background: rgba(255,255,255,0.08);
-    border: 1px solid rgba(255,255,255,0.15);
-    color: rgba(255,255,255,0.5);
-    padding: 3px 10px; border-radius: 12px;
-    font-size: 11px; cursor: pointer;
-    transition: all 0.2s;
+    border: none;
+    color: rgba(255,255,255,0.55);
+    padding: 5px 14px;
+    border-radius: 980px;
+    font-size: 12px;
+    font-weight: 500;
+    font-family: var(--font-sans);
+    cursor: pointer;
+    transition: all 0.25s var(--ease-apple);
+    position: relative;
+    overflow: hidden;
+  }
+  /* Glass button shimmer */
+  .video-mode-btn::before {
+    content: "";
+    position: absolute;
+    inset: 0;
+    border-radius: 980px;
+    pointer-events: none;
+    box-shadow:
+      inset 1px 1px 0px 0px rgba(255,255,255,0.25),
+      inset -1px -1px 0px 0px rgba(255,255,255,0.15);
   }
   .video-mode-btn.active {
-    background: rgba(0,220,180,0.2);
-    border-color: rgba(0,220,180,0.4);
-    color: #00dcb4;
+    background: rgba(0,122,255,0.22);
+    color: #4dacff;
   }
-  .video-mode-btn:hover { opacity: 0.85; }
+  .video-mode-btn:hover { opacity: 0.85; transform: scale(1.02); }
+  .video-mode-btn:active { transform: scale(0.98); }
 
-  /* 右：面板 — 占 30% 宽度 */
-  .panel {
+  /* ── Panel Wrapper: Colorful backdrop for glass refraction ── */
+  .panel-wrapper {
     flex: 0 0 30%;
     min-width: 320px;
-    background: var(--card);
-    border-left: 1px solid var(--border);
+    position: relative;
+    overflow: hidden;
+  }
+  /* Rich gradient — gives the glass something to refract */
+  .panel-wrapper::before {
+    content: "";
+    position: absolute;
+    inset: 0;
+    background:
+      linear-gradient(165deg,
+        #a8d8ff 0%,
+        #c2e9ff 12%,
+        #e8d5f5 24%,
+        #f5e6cc 36%,
+        #b8e6d0 48%,
+        #d4c5f9 60%,
+        #fce4ec 72%,
+        #c9e4f9 84%,
+        #e0f0ff 100%
+      );
+    z-index: 0;
+  }
+
+  /* ── Panel: Liquid Glass Surface ── */
+  .panel {
+    position: relative;
+    z-index: 1;
+    height: 100%;
     overflow-y: auto;
-    padding: 16px 20px;
+    padding: 20px 16px;
     display: flex;
     flex-direction: column;
-    gap: 16px;
+    gap: 12px;
+    /* Liquid Glass: low opacity + blur + saturate */
+    background: rgba(255,255,255,0.32);
+    backdrop-filter: blur(14px) saturate(130%);
+    -webkit-backdrop-filter: blur(14px) saturate(130%);
+    scrollbar-width: thin;
+    scrollbar-color: rgba(0,0,0,0.06) transparent;
   }
+  .panel::-webkit-scrollbar { width: 6px; }
+  .panel::-webkit-scrollbar-track { background: transparent; }
+  .panel::-webkit-scrollbar-thumb { background: rgba(0,0,0,0.08); border-radius: 3px; }
 
-  /* 卡片 */
+  /* ── Card: Liquid Glass Element ── */
   .card {
-    background: #141723;
-    border: 1px solid var(--border);
-    border-radius: 10px;
+    position: relative;
+    width: 100%;
+    min-width: 0;
+    background: rgba(255,255,255,0.32);
+    backdrop-filter: blur(14px) saturate(130%);
+    -webkit-backdrop-filter: blur(14px) saturate(130%);
+    border: none;
+    border-radius: var(--glass-border-radius);
     padding: 16px;
+    flex-shrink: 0;
+    /* All glass rim-light effects as inset box-shadow (no pseudo-elements) */
+    box-shadow:
+      inset 1px 1px 0px 0px rgba(255,255,255,0.5),
+      inset -1px -1px 0px 0px rgba(255,255,255,0.3),
+      inset 2px 2px 6px 1px rgba(255,255,255,0.12),
+      inset -2px -2px 4px -1px rgba(255,255,255,0.08),
+      0 1px 3px rgba(0,0,0,0.04);
+    transition:
+      background 0.3s var(--ease-apple),
+      transform 0.3s var(--ease-apple),
+      box-shadow 0.3s var(--ease-apple);
+    animation: cardSlideUp 0.5s var(--ease-apple) both;
+  }
+  .card:nth-child(1)  { animation-delay: 0.06s; }
+  .card:nth-child(2)  { animation-delay: 0.12s; }
+  .card:nth-child(3)  { animation-delay: 0.18s; }
+  .card:nth-child(4)  { animation-delay: 0.24s; }
+  .card:nth-child(5)  { animation-delay: 0.30s; }
+  .card:nth-child(6)  { animation-delay: 0.36s; }
+  .card:nth-child(7)  { animation-delay: 0.42s; }
+  .card:nth-child(8)  { animation-delay: 0.48s; }
+
+  .card:hover {
+    background: rgba(255,255,255,0.45);
+    transform: translateY(-2px);
+    box-shadow:
+      inset 1px 1px 0px 0px rgba(255,255,255,0.5),
+      inset -1px -1px 0px 0px rgba(255,255,255,0.3),
+      inset 2px 2px 6px 1px rgba(255,255,255,0.12),
+      inset -2px -2px 4px -1px rgba(255,255,255,0.08),
+      0 8px 24px rgba(0,0,0,0.06),
+      0 2px 6px rgba(0,0,0,0.03);
   }
   .card-title {
-    font-size: 13px; color: var(--sub);
+    font-size: 11px;
+    font-weight: 600;
+    color: var(--text-tertiary);
     text-transform: uppercase;
-    margin-bottom: 10px;
-    letter-spacing: 0.5px;
+    letter-spacing: 0.06em;
+    margin-bottom: 12px;
   }
 
-  /* 风险区域 */
-  .risk-main { text-align: center; }
+  /* ── Risk Score ── */
+  .risk-main { text-align: center; padding: 20px 16px; }
   .risk-score {
-    font-size: 48px; font-weight: 700;
-    line-height: 1; margin: 8px 0;
+    font-size: 56px;
+    font-weight: 700;
+    letter-spacing: -0.04em;
+    line-height: 1;
+    margin: 4px 0;
+    background: linear-gradient(135deg, var(--text-primary), var(--blue));
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+    animation: scoreReveal 0.8s var(--ease-apple) 0.2s both;
+    transition: transform 0.4s var(--ease-apple);
+  }
+  .risk-score.pulse {
+    animation: scoreReveal 0.35s var(--ease-apple) both, scoreBreathing 3s ease-in-out infinite;
   }
   .risk-level-badge {
     display: inline-block;
-    padding: 4px 18px; border-radius: 20px;
-    font-size: 14px; font-weight: 600; margin-top: 4px;
+    padding: 5px 16px;
+    border-radius: 980px;
+    font-size: 13px;
+    font-weight: 600;
+    margin-top: 6px;
+    transition: all 0.35s var(--ease-apple);
+    position: relative;
   }
-  .risk-level-badge.low { background: rgba(34,197,94,0.15); color: var(--green); }
-  .risk-level-badge.med { background: rgba(234,179,8,0.15); color: var(--yellow); }
-  .risk-level-badge.high { background: rgba(239,68,68,0.15); color: var(--red); }
+  /* Glass badge rim light */
+  .risk-level-badge::before {
+    content: "";
+    position: absolute;
+    inset: 0;
+    border-radius: 980px;
+    pointer-events: none;
+    box-shadow:
+      inset 1px 1px 0px 0px rgba(255,255,255,0.5),
+      inset -1px -1px 0px 0px rgba(255,255,255,0.3);
+  }
+  .risk-level-badge.low { background: var(--green-subtle); color: var(--green); }
+  .risk-level-badge.med { background: var(--yellow-subtle); color: var(--orange); }
+  .risk-level-badge.high { background: var(--red-subtle); color: var(--red); }
 
-  /* 进度条 */
+  /* ── Progress Bar ── */
   .risk-bar-track {
-    margin-top: 12px;
-    height: 8px; border-radius: 4px;
-    background: var(--border);
+    margin-top: 14px;
+    height: 6px;
+    border-radius: 3px;
+    background: rgba(0,0,0,0.04);
     overflow: hidden;
+    box-shadow: inset 0 1px 2px rgba(0,0,0,0.03);
   }
   .risk-bar-fill {
-    height: 100%; border-radius: 4px;
-    transition: width 0.3s, background 0.3s;
+    height: 100%;
+    border-radius: 3px;
+    transition: width 0.5s var(--ease-apple), background 0.5s var(--ease-apple);
+    /* Glass bar: subtle inner light on top */
+    box-shadow: inset 0 1px 0px 0px rgba(255,255,255,0.3);
   }
 
-  /* 风险分解 */
+  /* ── Risk Items ── */
   .risk-item-row {
+    display: flex;
+    align-items: center;
+    margin-bottom: 10px;
+    font-size: 13px;
+  }
+  .risk-item-row:last-child { margin-bottom: 0; }
+  .risk-item-label { width: 60px; color: var(--text-secondary); font-size: 13px; }
+  .risk-item-bar {
+    flex: 1; margin: 0 12px;
+    height: 4px; border-radius: 2px;
+    background: rgba(0,0,0,0.04);
+    overflow: hidden;
+  }
+  .risk-item-fill {
+    height: 100%; border-radius: 2px;
+    background: var(--blue);
+    transition: width 0.45s var(--ease-apple);
+    box-shadow: inset 0 1px 0px 0px rgba(255,255,255,0.25);
+  }
+  .risk-item-val {
+    width: 40px; text-align: right;
+    font-family: var(--font-mono);
+    font-size: 12px; font-weight: 500;
+    color: var(--text-primary);
+    font-variant-numeric: tabular-nums;
+  }
+
+  /* ── Sensor Status ── */
+  .sensor-row {
     display: flex;
     align-items: center;
     justify-content: space-between;
     margin-bottom: 8px;
     font-size: 13px;
   }
-  .risk-item-label { width: 52px; color: var(--sub); }
-  .risk-item-bar {
-    flex: 1; margin: 0 10px;
-    height: 6px; border-radius: 3px;
-    background: var(--border);
-    overflow: hidden;
+  .sensor-row:last-child { margin-bottom: 0; }
+  .sensor-left { display: flex; align-items: center; gap: 10px; }
+  .sensor-indicator {
+    width: 8px; height: 8px;
+    border-radius: 50%;
+    display: inline-block;
+    transition: all 0.35s var(--ease-apple);
   }
-  .risk-item-fill {
-    height: 100%; border-radius: 3px;
-    background: var(--blue);
-    transition: width 0.3s;
+  .sensor-indicator.on {
+    background: var(--green);
+    box-shadow: 0 0 8px rgba(52,199,89,0.5), 0 0 20px rgba(52,199,89,0.15);
+    animation: indicatorPulse 2.5s ease-in-out infinite;
   }
-  .risk-item-val { width: 40px; text-align: right; }
+  .sensor-indicator.off { background: var(--red); box-shadow: 0 0 4px rgba(255,59,48,0.3); }
+  .sensor-indicator.mock { background: var(--yellow); box-shadow: 0 0 4px rgba(255,159,10,0.25); }
+  .sensor-mode {
+    font-size: 12px; font-family: var(--font-mono);
+    color: var(--text-tertiary);
+    transition: color 0.3s var(--ease-apple);
+  }
 
-  /* 传感器状态 */
-  .sensor-row {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    margin-bottom: 6px;
-    font-size: 13px;
-  }
-  .sensor-dot {
-    width: 8px; height: 8px; border-radius: 50%;
-    display: inline-block; margin-right: 8px;
-  }
-  .sensor-dot.on { background: var(--green); }
-  .sensor-dot.off { background: var(--red); }
-  .sensor-dot.mock { background: var(--yellow); }
-  .sensor-mode { color: var(--sub); }
-
-  /* 视觉详情行 */
+  /* ── Vision Details ── */
   .vd-row {
     display: flex;
     align-items: center;
-    justify-content: space-between;
-    margin-bottom: 6px;
+    margin-bottom: 8px;
     font-size: 13px;
   }
-  .vd-label { color: var(--sub); min-width: 104px; }
-  .vd-val { text-align: right; font-variant-numeric: tabular-nums; }
+  .vd-row:last-child { margin-bottom: 0; }
+  .vd-label { color: var(--text-secondary); min-width: 100px; font-size: 13px; }
+  .vd-val {
+    text-align: right;
+    font-variant-numeric: tabular-nums;
+    font-family: var(--font-mono);
+    font-size: 12px; font-weight: 500;
+    color: var(--text-primary);
+    transition: color 0.3s var(--ease-apple);
+  }
   .vd-bar {
-    flex: 1; margin: 0 8px;
+    flex: 1; margin: 0 10px;
     height: 4px; border-radius: 2px;
-    background: var(--border);
+    background: rgba(0,0,0,0.04);
     overflow: hidden;
   }
   .vd-bar-fill {
     height: 100%; border-radius: 2px;
     background: var(--blue);
-    transition: width 0.3s;
+    transition: width 0.45s var(--ease-apple);
+    box-shadow: inset 0 1px 0px 0px rgba(255,255,255,0.25);
   }
 
-  /* 连接异常遮罩 */
+  /* ── Runtime / IMU ── */
+  .sensor-label { color: var(--text-secondary); font-size: 13px; }
+  .imu-val {
+    font-family: var(--font-mono);
+    font-size: 12px; color: var(--text-primary);
+    transition: color 0.3s var(--ease-apple);
+  }
+
+  /* ── Mode Card ── */
+  .mode-row { display: flex; align-items: center; gap: 10px; }
+
+  /* ── System Message Card ── */
+  .sys-msg-card {
+    background: rgba(255,255,255,0.18);
+    backdrop-filter: blur(14px) saturate(130%);
+    -webkit-backdrop-filter: blur(14px) saturate(130%);
+    box-shadow:
+      inset 1px 1px 0px 0px rgba(255,255,255,0.35),
+      inset -1px -1px 0px 0px rgba(255,255,255,0.2);
+    padding: 8px 16px;
+  }
+  .sys-msg-card:hover {
+    background: rgba(255,255,255,0.28);
+    transform: none;
+  }
+  .sys-msg-text {
+    font-size: 11px; color: var(--text-tertiary);
+    font-family: var(--font-mono);
+    transition: opacity 0.3s var(--ease-apple);
+  }
+
+  /* ── Error Overlay: Liquid Glass ── */
   .error-overlay {
     display: none;
-    position: fixed; inset: 0;
-    background: rgba(0,0,0,0.75);
+    position: fixed;
+    inset: 0;
+    background: rgba(255,255,255,0.35);
+    backdrop-filter: blur(14px) saturate(130%);
+    -webkit-backdrop-filter: blur(14px) saturate(130%);
     z-index: 999;
     align-items: center;
     justify-content: center;
   }
-  .error-overlay.show { display: flex; }
-  .error-box {
-    background: var(--card);
-    border: 1px solid var(--red);
-    border-radius: 12px;
-    padding: 32px 40px;
-    text-align: center;
+  .error-overlay.show {
+    display: flex;
+    animation: overlayFadeIn 0.35s var(--ease-apple) both;
   }
-  .error-box h2 { color: var(--red); margin-bottom: 8px; }
-  .error-box p { color: var(--sub); font-size: 14px; }
+  .error-box {
+    position: relative;
+    background: rgba(255,255,255,0.45);
+    backdrop-filter: blur(14px) saturate(130%);
+    -webkit-backdrop-filter: blur(14px) saturate(130%);
+    border: none;
+    border-radius: 20px;
+    padding: 40px 48px;
+    text-align: center;
+    box-shadow: 0 32px 80px -16px rgba(0,0,0,0.12);
+    animation: overlayBoxScale 0.4s var(--ease-apple) 0.1s both;
+    overflow: hidden;
+  }
+  .error-box::before {
+    content: "";
+    position: absolute;
+    inset: 0;
+    border-radius: 20px;
+    pointer-events: none;
+    box-shadow:
+      inset 1px 1px 0px 0px rgba(255,255,255,0.6),
+      inset -1px -1px 0px 0px rgba(255,255,255,0.4);
+    background:
+      radial-gradient(circle at top left, rgba(255,255,255,0.25), transparent 30%),
+      radial-gradient(circle at bottom right, rgba(255,255,255,0.1), transparent 25%);
+  }
+  .error-box h2 {
+    color: var(--red);
+    font-size: 20px; font-weight: 600;
+    letter-spacing: -0.01em;
+    margin-bottom: 8px;
+  }
+  .error-box p {
+    color: var(--text-secondary);
+    font-size: 14px; line-height: 1.5;
+  }
 </style>
 </head>
 <body>
 
-<!-- 标题栏 -->
+<!-- Header -->
 <div class="header">
-  <h1>骑手前向安全预警 Dashboard</h1>
-  <div>
-    <span class="status-dot online" id="conn-dot"></span>
-    <span class="status-text" id="conn-text">已连接</span>
+  <h1>骑手前向安全预警</h1>
+  <div class="header-right">
+    <span class="status-pill" id="conn-pill">
+      <span class="status-pill-dot" id="conn-dot"></span>
+      <span id="conn-text">已连接</span>
+    </span>
   </div>
 </div>
 
-<!-- 主区域 -->
+<!-- Main Area -->
 <div class="main">
 
-  <!-- 左侧：摄像头画面 -->
+  <!-- Left: Camera Feed -->
   <div class="video-col">
     <div class="video-wrapper" id="video-wrapper">
       <img src="/video_annotated_feed" alt="Camera" id="video-img">
@@ -268,67 +611,70 @@
     </div>
   </div>
 
-  <!-- 右侧：状态面板 -->
-  <div class="panel">
+  <!-- Right: Liquid Glass Panel -->
+  <div class="panel-wrapper">
+    <div class="panel">
 
-    <!-- 风险评分 -->
-    <div class="card risk-main">
-      <div class="card-title">综合风险评分</div>
-      <div class="risk-score" id="risk-score">0.50</div>
-      <div class="risk-level-badge low" id="risk-badge">低风险</div>
-      <div class="risk-bar-track">
-        <div class="risk-bar-fill" id="risk-bar" style="width:50%; background:var(--green);"></div>
+      <!-- Risk Score -->
+      <div class="card risk-main">
+        <div class="card-title">综合风险评分</div>
+        <div class="risk-score" id="risk-score">0.50</div>
+        <div class="risk-level-badge low" id="risk-badge">低风险</div>
+        <div class="risk-bar-track">
+          <div class="risk-bar-fill" id="risk-bar" style="width:50%; background:var(--green);"></div>
+        </div>
       </div>
-    </div>
 
-    <!-- 风险分解 -->
-    <div class="card">
-      <div class="card-title">四项风险分解</div>
-      <div id="risk-items-container"></div>
-    </div>
-
-    <!-- 传感器状态 -->
-    <div class="card">
-      <div class="card-title">传感器状态</div>
-      <div id="sensors-container"></div>
-    </div>
-
-    <!-- IMU 实时数据 -->
-    <div class="card" id="imu-card">
-      <div class="card-title">IMU 姿态数据</div>
-      <div id="imu-container"></div>
-    </div>
-
-    <!-- 模式 -->
-    <div class="card">
-      <div class="card-title">运行模式</div>
-      <div style="display:flex;align-items:center;gap:8px;">
-        <span class="sensor-dot mock"></span>
-        <span id="mode-text">mock</span>
+      <!-- Risk Breakdown -->
+      <div class="card">
+        <div class="card-title">风险分解</div>
+        <div id="risk-items-container"></div>
       </div>
-    </div>
 
-    <!-- 视觉感知结果 -->
-    <div class="card" id="vision-card">
-      <div class="card-title">视觉感知结果</div>
-      <div id="vision-details-container"></div>
-    </div>
+      <!-- Sensor Status -->
+      <div class="card">
+        <div class="card-title">传感器状态</div>
+        <div id="sensors-container"></div>
+      </div>
 
-    <!-- 运行状态 -->
-    <div class="card" id="runtime-card">
-      <div class="card-title">运行状态</div>
-      <div id="runtime-container"></div>
-    </div>
+      <!-- IMU Data -->
+      <div class="card" id="imu-card">
+        <div class="card-title">IMU 姿态数据</div>
+        <div id="imu-container"></div>
+      </div>
 
-    <!-- 系统消息 -->
-    <div class="card" style="padding:10px 16px;">
-      <span style="font-size:12px; color:var(--sub);" id="sys-msg">dashboard initialized</span>
-    </div>
+      <!-- Mode -->
+      <div class="card">
+        <div class="card-title">运行模式</div>
+        <div class="mode-row">
+          <span class="sensor-indicator mock"></span>
+          <span id="mode-text" style="font-family:var(--font-mono); font-size:13px;">mock</span>
+        </div>
+      </div>
 
+      <!-- Vision Perception -->
+      <div class="card" id="vision-card">
+        <div class="card-title">视觉感知结果</div>
+        <div id="vision-details-container"></div>
+      </div>
+
+      <!-- Runtime -->
+      <div class="card" id="runtime-card">
+        <div class="card-title">运行状态</div>
+        <div id="runtime-container"></div>
+      </div>
+
+      <!-- System Message -->
+      <div class="card sys-msg-card">
+        <span class="sys-msg-text" id="sys-msg">dashboard initialized</span>
+      </div>
+
+    </div>
   </div>
+
 </div>
 
-<!-- 连接异常遮罩 -->
+<!-- Error Overlay -->
 <div class="error-overlay" id="error-overlay">
   <div class="error-box">
     <h2>后端连接异常</h2>
@@ -339,16 +685,15 @@
 <script>
 (function () {
   const $ = (id) => document.getElementById(id);
-
   let errorCount = 0;
   const MAX_ERRORS = 3;
+  let prevRiskLevel = -1;
 
   const sensorNames = ["camera", "vision", "radar", "imu", "gps"];
-  const sensorLabels = {"camera":"摄像头", "vision":"视觉","radar":"雷达","imu":"IMU","gps":"GPS"};
+  const sensorLabels = {"camera":"摄像头","vision":"视觉","radar":"雷达","imu":"IMU","gps":"GPS"};
   const riskItemNames = ["obs", "dist", "pose", "speed"];
   const riskItemLabels = {"obs":"视觉风险","dist":"距离风险","pose":"姿态风险","speed":"速度风险"};
 
-  // 初始化风险分解行
   const itemsContainer = $("risk-items-container");
   const ids = {};
   riskItemNames.forEach(k => {
@@ -363,18 +708,16 @@
     ids[k + "_val"] = "item-val-" + k;
   });
 
-  // 初始化传感器行
   const sensorsContainer = $("sensors-container");
   sensorNames.forEach(k => {
     const div = document.createElement("div");
     div.className = "sensor-row";
     div.innerHTML =
-      '<span><span class="sensor-dot off" id="sen-dot-' + k + '"></span>' + sensorLabels[k] + '</span>' +
+      '<span class="sensor-left"><span class="sensor-indicator off" id="sen-dot-' + k + '"></span>' + sensorLabels[k] + '</span>' +
       '<span class="sensor-mode" id="sen-mode-' + k + '">mock</span>';
     sensorsContainer.appendChild(div);
   });
 
-  // 初始化 IMU 数据行
   const imuFields = ["roll", "pitch", "yaw", "acc_x", "acc_y", "acc_z"];
   const imuLabels = {"roll":"Roll (滚转角)","pitch":"Pitch (俯仰角)","yaw":"Yaw (航向角)","acc_x":"Acc X","acc_y":"Acc Y","acc_z":"Acc Z"};
   const imuIds = {};
@@ -384,15 +727,14 @@
     div.className = "sensor-row";
     div.innerHTML =
       '<span class="sensor-label">' + imuLabels[k] + '</span>' +
-      '<span class="sensor-mode" id="imu-val-' + k + '" style="font-family:monospace;">--</span>';
+      '<span class="sensor-mode imu-val" id="imu-val-' + k + '">--</span>';
     imuContainer.appendChild(div);
     imuIds[k + "_val"] = "imu-val-" + k;
   });
 
-  // 初始化视觉详情行
-  const visionFields = ["valid", "object_count", "person_count", "vehicle_count", "max_confidence", "drivable_area_ratio", "max_visual_risk"];
+  const visionFields = ["valid","object_count","person_count","vehicle_count","max_confidence","drivable_area_ratio","max_visual_risk"];
   const visionFieldLabels = {"valid":"Vision 有效","object_count":"目标数量","person_count":"行人数量","vehicle_count":"车辆数量","max_confidence":"最高置信度","drivable_area_ratio":"可行驶区域比例","max_visual_risk":"最大视觉风险"};
-  const visionFieldBars = {"max_confidence":true, "drivable_area_ratio":true, "max_visual_risk":true};
+  const visionFieldBars = {"max_confidence":true,"drivable_area_ratio":true,"max_visual_risk":true};
   const vdIds = {};
   const vdContainer = $("vision-details-container");
   visionFields.forEach(k => {
@@ -413,19 +755,11 @@
     vdIds[k + "_val"] = "vd-val-" + k;
   });
 
-  // 初始化运行状态行
-  const runtimeFields = ["backend_uptime_sec", "state_hz", "last_update_time", "camera_available", "vision_enabled", "vision_status", "object_count", "state_loop_ms", "vision_infer_ms", "approx_state_fps"];
+  const runtimeFields = ["backend_uptime_sec","state_hz","last_update_time","camera_available","vision_enabled","vision_status","object_count","state_loop_ms","vision_infer_ms","approx_state_fps"];
   const runtimeLabels = {
-    "backend_uptime_sec":"后端运行时长",
-    "state_hz":"状态更新频率",
-    "last_update_time":"最后更新时间",
-    "camera_available":"摄像头状态",
-    "vision_enabled":"Vision 启用",
-    "vision_status":"Vision 状态",
-    "object_count":"当前目标数量",
-    "state_loop_ms":"状态循环耗时",
-    "vision_infer_ms":"Vision 推理耗时",
-    "approx_state_fps":"近似状态 FPS"
+    "backend_uptime_sec":"后端运行时长","state_hz":"状态更新频率","last_update_time":"最后更新时间",
+    "camera_available":"摄像头状态","vision_enabled":"Vision 启用","vision_status":"Vision 状态",
+    "object_count":"当前目标数量","state_loop_ms":"状态循环耗时","vision_infer_ms":"Vision 推理耗时","approx_state_fps":"近似状态 FPS"
   };
   const rtIds = {};
   const rtContainer = $("runtime-container");
@@ -439,276 +773,137 @@
     rtIds[k + "_val"] = "rt-val-" + k;
   });
 
-  // ── 视频叠加检测框绘制 ──
   function drawOverlay(vd) {
     const canvas = $("overlay-canvas");
     const img = $("video-img");
     if (!canvas || !img) return;
-
     const ctx = canvas.getContext("2d");
-    const dw = img.clientWidth;
-    const dh = img.clientHeight;
+    const dw = img.clientWidth; const dh = img.clientHeight;
     if (dw <= 0 || dh <= 0) return;
-
-    // 匹配 video-wrapper 尺寸（即 img 显示尺寸）
     const wrapper = $("video-wrapper");
-    if (wrapper) {
-      canvas.width = wrapper.clientWidth;
-      canvas.height = wrapper.clientHeight;
-    } else {
-      canvas.width = dw;
-      canvas.height = dh;
-    }
-
+    if (wrapper) { canvas.width = wrapper.clientWidth; canvas.height = wrapper.clientHeight; }
+    else { canvas.width = dw; canvas.height = dh; }
     ctx.clearRect(0, 0, canvas.width, canvas.height);
-
     const objects = vd.objects;
     if (!objects || objects.length === 0) return;
-
-    const fs = vd.frame_size || {width: 640, height: 480};
-    // scale from original frame coords to canvas coords
-    // img is centered inside wrapper with object-fit:contain,
-    // so we need to compute the actual rendered rect of the img
-    const imgNaturalW = fs.width;
-    const imgNaturalH = fs.height;
-    const imgAspect = imgNaturalW / imgNaturalH;
-    const canvasAspect = canvas.width / canvas.height;
-
-    let renderW, renderH, offsetX, offsetY;
-    if (imgAspect > canvasAspect) {
-      renderW = canvas.width;
-      renderH = canvas.width / imgAspect;
-      offsetX = 0;
-      offsetY = (canvas.height - renderH) / 2;
-    } else {
-      renderH = canvas.height;
-      renderW = canvas.height * imgAspect;
-      offsetX = (canvas.width - renderW) / 2;
-      offsetY = 0;
-    }
-
-    const scaleX = renderW / imgNaturalW;
-    const scaleY = renderH / imgNaturalH;
-
-    objects.forEach(function (obj) {
-      const bbox = obj.bbox;
-      if (!bbox || bbox.length < 4) return;
-      const x1 = offsetX + bbox[0] * scaleX;
-      const y1 = offsetY + bbox[1] * scaleY;
-      const x2 = offsetX + bbox[2] * scaleX;
-      const y2 = offsetY + bbox[3] * scaleY;
-      const w = x2 - x1;
-      const h = y2 - y1;
-      if (w <= 0 || h <= 0) return;
-
-      const risk = typeof obj.risk === "number" ? obj.risk : 0;
-      let color;
-      if (risk < 0.3) color = "#22c55e";      // green
-      else if (risk < 0.7) color = "#eab308";  // yellow
-      else color = "#ef4444";                   // red
-
-      // draw bbox
-      ctx.strokeStyle = color;
-      ctx.lineWidth = 2;
-      ctx.strokeRect(x1, y1, w, h);
-
-      // draw label background
-      const label = obj.class_name + " " + (obj.confidence * 100).toFixed(0) + "%" +
-        (risk > 0 ? " R:" + risk.toFixed(2) : "");
-      ctx.font = "12px 'Segoe UI', 'Microsoft YaHei', sans-serif";
-      const textW = ctx.measureText(label).width + 8;
-      const textH = 20;
-      const labelY = y1 - textH - 2;
-      const drawLabelY = labelY > 0 ? labelY : y1 + 2;
-
-      ctx.fillStyle = "rgba(0,0,0,0.65)";
-      ctx.fillRect(x1, drawLabelY, Math.min(textW, w), textH);
-
-      ctx.fillStyle = color;
-      ctx.textBaseline = "middle";
-      ctx.fillText(label, x1 + 4, drawLabelY + textH / 2, Math.min(w - 8, textW - 8));
+    const fs = vd.frame_size || {width:640,height:480};
+    const nW = fs.width; const nH = fs.height;
+    const asp = nW/nH; const casp = canvas.width/canvas.height;
+    let rW,rH,oX,oY;
+    if (asp > casp) { rW=canvas.width; rH=canvas.width/asp; oX=0; oY=(canvas.height-rH)/2; }
+    else { rH=canvas.height; rW=canvas.height*asp; oX=(canvas.width-rW)/2; oY=0; }
+    const sX=rW/nW; const sY=rH/nH;
+    objects.forEach(function(obj) {
+      const b=obj.bbox; if (!b||b.length<4) return;
+      const x1=oX+b[0]*sX,y1=oY+b[1]*sY,x2=oX+b[2]*sX,y2=oY+b[3]*sY;
+      const w=x2-x1,h=y2-y1; if(w<=0||h<=0) return;
+      const risk=typeof obj.risk==="number"?obj.risk:0;
+      let c; if(risk<0.3) c="#34c759"; else if(risk<0.7) c="#ff9500"; else c="#ff3b30";
+      ctx.strokeStyle=c; ctx.lineWidth=2; ctx.lineJoin="round"; ctx.strokeRect(x1,y1,w,h);
+      const lbl=obj.class_name+" "+(obj.confidence*100).toFixed(0)+"%"+(risk>0?" R:"+risk.toFixed(2):"");
+      ctx.font="600 12px "+getComputedStyle(document.body).fontFamily;
+      const tw=ctx.measureText(lbl).width+12,th=22,ly2=y1-th-3,dy=ly2>0?ly2:y1+3;
+      const r=6,lx=x1,ly=dy,lw=Math.min(tw,w+12),lh=th;
+      ctx.fillStyle="rgba(0,0,0,0.55)"; ctx.beginPath();
+      ctx.moveTo(lx+r,ly); ctx.lineTo(lx+lw-r,ly); ctx.quadraticCurveTo(lx+lw,ly,lx+lw,ly+r);
+      ctx.lineTo(lx+lw,ly+lh-r); ctx.quadraticCurveTo(lx+lw,ly+lh,lx+lw-r,ly+lh);
+      ctx.lineTo(lx+r,ly+lh); ctx.quadraticCurveTo(lx,ly+lh,lx,ly+lh-r);
+      ctx.lineTo(lx,ly+r); ctx.quadraticCurveTo(lx,ly,lx+r,ly); ctx.closePath(); ctx.fill();
+      ctx.fillStyle=c; ctx.textBaseline="middle";
+      ctx.fillText(lbl,lx+8,ly+lh/2,Math.min(w-8,tw-16));
     });
   }
 
   function toggleVideoMode() {
-      var btn = $('btn-video-mode');
-      var img = $('video-img');
-      if (btn.classList.contains('active')) {
-        // 切换到原始画面
-        btn.classList.remove('active');
-        btn.textContent = '原始画面';
-        img.src = '/video_feed';
-      } else {
-        // 切换回视觉增强
-        btn.classList.add('active');
-        btn.textContent = '视觉增强';
-        img.src = '/video_annotated_feed';
-      }
-    }
-    window.toggleVideoMode = toggleVideoMode;
+    var btn=$('btn-video-mode'),img=$('video-img');
+    if(btn.classList.contains('active')){btn.classList.remove('active');btn.textContent='原始画面';img.src='/video_feed';}
+    else{btn.classList.add('active');btn.textContent='视觉增强';img.src='/video_annotated_feed';}
+  }
+  window.toggleVideoMode = toggleVideoMode;
 
-  // 从 API 更新界面
   async function update() {
     try {
       const resp = await fetch("/api/state");
-      if (!resp.ok) throw new Error("HTTP " + resp.status);
+      if (!resp.ok) throw new Error("HTTP "+resp.status);
       const s = await resp.json();
 
-      // 风险评分
-      $("risk-score").textContent = s.risk_score.toFixed(2);
-      const pct = (s.risk_score * 100).toFixed(1) + "%";
+      const scoreEl = $("risk-score");
+      scoreEl.textContent = s.risk_score.toFixed(2);
+      const pct = (s.risk_score*100).toFixed(1)+"%";
 
-      // 风险等级
-      const badge = $("risk-badge");
-      const bar = $("risk-bar");
-      if (s.risk_level === 0) {
-        badge.textContent = "低风险";
-        badge.className = "risk-level-badge low";
-        bar.style.background = "var(--green)";
-      } else if (s.risk_level === 1) {
-        badge.textContent = "中风险";
-        badge.className = "risk-level-badge med";
-        bar.style.background = "var(--yellow)";
-      } else {
-        badge.textContent = "高风险";
-        badge.className = "risk-level-badge high";
-        bar.style.background = "var(--red)";
+      const badge=$("risk-badge"),bar=$("risk-bar");
+      if (s.risk_level !== prevRiskLevel) {
+        scoreEl.classList.remove("pulse"); void scoreEl.offsetWidth; scoreEl.classList.add("pulse");
+        badge.style.transform="scale(0.85)"; badge.style.opacity="0";
+        setTimeout(function(){
+          if(s.risk_level===0){badge.textContent="低风险";badge.className="risk-level-badge low";bar.style.background="var(--green)";}
+          else if(s.risk_level===1){badge.textContent="中风险";badge.className="risk-level-badge med";bar.style.background="var(--orange)";}
+          else{badge.textContent="高风险";badge.className="risk-level-badge high";bar.style.background="var(--red)";}
+          badge.style.transform="scale(1)";badge.style.opacity="1";
+        },150);
+        prevRiskLevel = s.risk_level;
       }
       bar.style.width = pct;
 
-      // 风险分解
-      riskItemNames.forEach(k => {
-        const v = s.risk_items[k] || 0;
-        $(ids[k + "_fill"]).style.width = (v * 100).toFixed(1) + "%";
-        $(ids[k + "_val"]).textContent = v.toFixed(2);
+      riskItemNames.forEach(k=>{const v=s.risk_items[k]||0;$(ids[k+"_fill"]).style.width=(v*100).toFixed(1)+"%";$(ids[k+"_val"]).textContent=v.toFixed(2);});
+
+      const sensors=s.sensors||{};
+      sensorNames.forEach(k=>{
+        const val=sensors[k],dot=$("sen-dot-"+k),modeEl=$("sen-mode-"+k);
+        if(val===true||(typeof val==="boolean"&&val)){dot.className="sensor-indicator on";modeEl.textContent="real";modeEl.style.color="var(--green)";}
+        else if(val===false||(typeof val==="boolean"&&!val)){dot.className="sensor-indicator off";modeEl.textContent="off";modeEl.style.color="var(--red)";}
+        else{dot.className="sensor-indicator mock";modeEl.textContent=String(val);modeEl.style.color="var(--yellow)";}
       });
 
-      // 传感器状态
-      const sensors = s.sensors || {};
-      sensorNames.forEach(k => {
-        const val = sensors[k];
-        const dot = $("sen-dot-" + k);
-        const modeEl = $("sen-mode-" + k);
-        if (val === true || (typeof val === "boolean" && val)) {
-          dot.className = "sensor-dot on";
-          modeEl.textContent = "real";
-        } else if (val === false || (typeof val === "boolean" && !val)) {
-          dot.className = "sensor-dot off";
-          modeEl.textContent = "off";
-        } else {
-          dot.className = "sensor-dot mock";
-          modeEl.textContent = String(val);
-        }
-      });
-
-      // 模式
       $("mode-text").textContent = s.mode || "mock";
 
-      // IMU 数据
-      const imuData = s.imu_data || {};
-      imuFields.forEach(k => {
-        const el = $(imuIds[k + "_val"]);
-        if (!el) return;
-        const v = imuData[k];
-        if (typeof v === "number") {
-          el.textContent = k.startsWith("acc") ? v.toFixed(2) + " m/s²" : v.toFixed(2) + "°";
-        } else {
-          el.textContent = "--";
-        }
-      });
-      // IMU 卡片有效性提示
-      if (!imuData.valid) {
-        $("imu-card").querySelector(".card-title").textContent = "IMU 姿态数据 (无数据)";
-      } else {
-        $("imu-card").querySelector(".card-title").textContent = "IMU 姿态数据";
-      }
+      const imuData=s.imu_data||{};
+      imuFields.forEach(k=>{const el=$(imuIds[k+"_val"]);if(!el)return;const v=imuData[k];if(typeof v==="number"){el.textContent=k.startsWith("acc")?v.toFixed(2)+" m/s²":v.toFixed(2)+"°";}else{el.textContent="--";}});
+      if(!imuData.valid){$("imu-card").querySelector(".card-title").textContent="IMU 姿态数据 (无数据)";}else{$("imu-card").querySelector(".card-title").textContent="IMU 姿态数据";}
 
-      // 视觉感知结果
-      const vd = s.vision_details || {};
-      visionFields.forEach(k => {
-        const el = $(vdIds[k + "_val"]);
-        if (!el) return;
-        if (k === "valid") {
-          el.textContent = vd.valid ? "是" : "否";
-          el.style.color = vd.valid ? "var(--green)" : "var(--red)";
-        } else if (typeof vd[k] === "number") {
-          el.textContent = vd[k].toFixed(2);
-        } else {
-          el.textContent = String(vd[k] != null ? vd[k] : "-");
-        }
-        if (visionFieldBars[k]) {
-          const bar = $(vdIds[k + "_bar"]);
-          if (bar && typeof vd[k] === "number") {
-            bar.style.width = (vd[k] * 100).toFixed(1) + "%";
-          }
-        }
+      const vd=s.vision_details||{};
+      visionFields.forEach(k=>{
+        const el=$(vdIds[k+"_val"]);if(!el)return;
+        if(k==="valid"){el.textContent=vd.valid?"是":"否";el.style.color=vd.valid?"var(--green)":"var(--red)";}
+        else if(typeof vd[k]==="number"){el.textContent=vd[k].toFixed(2);}
+        else{el.textContent=String(vd[k]!=null?vd[k]:"-");}
+        if(visionFieldBars[k]){const bar=$(vdIds[k+"_bar"]);if(bar&&typeof vd[k]==="number"){bar.style.width=(vd[k]*100).toFixed(1)+"%";}}
       });
 
-      // 视频叠加检测框（后端已绘制到 /video_annotated_feed，前端仅作备用关闭）
-      // drawOverlay(vd);
-
-      // 运行状态
-      const rt = s.runtime || {};
-      runtimeFields.forEach(k => {
-        const el = $(rtIds[k + "_val"]);
-        if (!el) return;
-        const v = rt[k];
-        if (k === "backend_uptime_sec" && typeof v === "number") {
-          const secs = Math.floor(v);
-          const hh = Math.floor(secs / 3600);
-          const mm = Math.floor((secs % 3600) / 60);
-          const ss = secs % 60;
-          el.textContent = String(hh).padStart(2,"0") + ":" +
-            String(mm).padStart(2,"0") + ":" + String(ss).padStart(2,"0");
-        } else if (k === "state_hz" && typeof v === "number") {
-          el.textContent = v + " Hz";
-        } else if (k === "camera_available" || k === "vision_enabled") {
-          el.textContent = v ? "是" : "否";
-          el.style.color = v ? "var(--green)" : "var(--red)";
-        } else if (k === "vision_status") {
-          el.textContent = String(v != null ? v : "--");
-          if (v === "real") el.style.color = "var(--green)";
-          else if (v === "off") el.style.color = "var(--red)";
-          else if (v === "mock") el.style.color = "var(--yellow)";
-          else el.style.color = "var(--sub)";
-        } else if (k === "state_loop_ms" && typeof v === "number") {
-          el.textContent = v.toFixed(2) + " ms";
-        } else if (k === "vision_infer_ms" && typeof v === "number") {
-          el.textContent = v.toFixed(2) + " ms";
-        } else if (k === "approx_state_fps" && typeof v === "number") {
-          el.textContent = v.toFixed(2) + " FPS";
-        } else if (typeof v === "number") {
-          el.textContent = String(v);
-        } else {
-          el.textContent = String(v != null ? v : "--");
-        }
+      const rt=s.runtime||{};
+      runtimeFields.forEach(k=>{
+        const el=$(rtIds[k+"_val"]);if(!el)return;const v=rt[k];
+        if(k==="backend_uptime_sec"&&typeof v==="number"){const secs=Math.floor(v);const hh=Math.floor(secs/3600);const mm=Math.floor((secs%3600)/60);const ss=secs%60;el.textContent=String(hh).padStart(2,"0")+":"+String(mm).padStart(2,"0")+":"+String(ss).padStart(2,"0");}
+        else if(k==="state_hz"&&typeof v==="number"){el.textContent=v+" Hz";}
+        else if(k==="camera_available"||k==="vision_enabled"){el.textContent=v?"是":"否";el.style.color=v?"var(--green)":"var(--red)";}
+        else if(k==="vision_status"){el.textContent=String(v!=null?v:"--");if(v==="real")el.style.color="var(--green)";else if(v==="off")el.style.color="var(--red)";else if(v==="mock")el.style.color="var(--yellow)";else el.style.color="var(--text-tertiary)";}
+        else if(k==="state_loop_ms"&&typeof v==="number"){el.textContent=v.toFixed(2)+" ms";}
+        else if(k==="vision_infer_ms"&&typeof v==="number"){el.textContent=v.toFixed(2)+" ms";}
+        else if(k==="approx_state_fps"&&typeof v==="number"){el.textContent=v.toFixed(2)+" FPS";}
+        else if(typeof v==="number"){el.textContent=String(v);}
+        else{el.textContent=String(v!=null?v:"--");}
       });
 
-      // 系统消息
-      if (s.message) {
-        $("sys-msg").textContent = s.message;
-      }
+      if(s.message){const msgEl=$("sys-msg");msgEl.style.opacity="0";setTimeout(function(){msgEl.textContent=s.message;msgEl.style.opacity="1";},150);}
 
-      // 连接正常
-      errorCount = 0;
-      $("conn-dot").className = "status-dot online";
-      $("conn-text").textContent = "已连接";
+      errorCount=0;
+      $("conn-pill").classList.remove("offline");
+      $("conn-dot").className="status-pill-dot";
+      $("conn-text").textContent="已连接";
       $("error-overlay").classList.remove("show");
-
-    } catch (e) {
+    } catch(e) {
       errorCount++;
-      if (errorCount >= MAX_ERRORS) {
-        $("conn-dot").className = "status-dot offline";
-        $("conn-text").textContent = "连接异常";
+      if(errorCount>=MAX_ERRORS){
+        $("conn-pill").classList.add("offline");
+        $("conn-dot").className="status-pill-dot";
+        $("conn-text").textContent="连接异常";
         $("error-overlay").classList.add("show");
       }
     }
   }
 
-  // 每 500ms 轮询
   update();
   setInterval(update, 500);
-
 })();
 </script>
 </body>
