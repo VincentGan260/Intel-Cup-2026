@@ -31,7 +31,7 @@ class YoloOpenVinoDetector(BaseDetector):
         exist_ok: bool = True,
         risk_mapping: dict | None = None,
     ):
-        from openvino.runtime import Core
+        import openvino as ov
 
         self.model_path = Path(model_path)
         self.confidence = float(confidence)
@@ -45,7 +45,7 @@ class YoloOpenVinoDetector(BaseDetector):
         self.names = self._load_names()
 
         xml_path = self._resolve_xml_path(self.model_path)
-        self.core = Core()
+        self.core = ov.Core()
         model = self.core.read_model(str(xml_path))
         self.input = model.inputs[0]
         self.output = model.outputs[0]
@@ -175,5 +175,6 @@ class YoloOpenVinoDetector(BaseDetector):
 
     def infer(self, frame: np.ndarray) -> list[DetectionResult]:
         blob, scale, pad = self._preprocess(frame)
-        result = self.compiled([blob])[self.output]
+        results = self.compiled([blob])
+        result = results[self.compiled.output(0)]
         return self._decode(result, scale, pad, frame.shape[:2])
