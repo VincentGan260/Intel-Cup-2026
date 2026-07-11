@@ -121,6 +121,23 @@
     color: var(--text-primary);
   }
   .header-right { display: flex; align-items: center; gap: 10px; }
+  .cloud-data-link {
+    display: inline-flex;
+    align-items: center;
+    padding: 5px 13px;
+    border-radius: 980px;
+    border: 1px solid rgba(0,122,255,0.22);
+    background: rgba(0,122,255,0.10);
+    color: var(--blue);
+    font-size: 12px;
+    font-weight: 600;
+    text-decoration: none;
+    transition: all var(--dur-fast) var(--ease-apple);
+  }
+  .cloud-data-link:hover {
+    background: rgba(0,122,255,0.18);
+    transform: translateY(-1px);
+  }
   .header .status-pill {
     display: inline-flex;
     align-items: center;
@@ -587,6 +604,10 @@
 <div class="header">
   <h1>骑手前向安全预警</h1>
   <div class="header-right">
+    <a class="cloud-data-link"
+       href="http://124.70.108.34/cloud-data.html"
+       target="_blank"
+       rel="noopener noreferrer">云端数据</a>
     <span class="status-pill" id="conn-pill">
       <span class="status-pill-dot" id="conn-dot"></span>
       <span id="conn-text">已连接</span>

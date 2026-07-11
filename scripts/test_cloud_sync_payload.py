@@ -1,4 +1,5 @@
 import sys
+import math
 from pathlib import Path
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
@@ -30,6 +31,13 @@ def main() -> int:
     assert invalid["latitude"] is None
     assert invalid["nearest_distance_m"] is None
     assert invalid["drivable_area_ratio"] is None
+    invalid_numbers = build_ride_payload({
+        "timestamp": 1_700_000_000.0,
+        "radar_data": {"valid": True, "nearest_distance_m": math.inf,
+                       "min_ttc_s": math.nan},
+    }, "bike-001")
+    assert invalid_numbers["nearest_distance_m"] is None
+    assert invalid_numbers["min_ttc_s"] is None
     print("cloud sync payload test passed")
     return 0
 
