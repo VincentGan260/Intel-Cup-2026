@@ -25,6 +25,9 @@
 from __future__ import annotations
 
 import argparse
+import shutil
+import statistics
+import subprocess
 import sys
 import time
 import threading
@@ -44,6 +47,9 @@ def attach_runtime_info(
     camera_available: bool,
     enable_vision: bool,
     state_loop_ms: float = 0.0,
+    actual_sample_hz: float = 0.0,
+    vision_p50_ms: float = 0.0,
+    vision_p95_ms: float = 0.0,
 ) -> dict:
     """在状态 dict 上附加运行时信息字段。
 
@@ -88,6 +94,9 @@ def attach_runtime_info(
         "state_loop_ms": round(state_loop_ms, 2),
         "vision_infer_ms": vision_infer_ms,
         "approx_state_fps": approx_state_fps,
+        "actual_sample_hz": round(actual_sample_hz, 2),
+        "vision_p50_ms": round(vision_p50_ms, 2),
+        "vision_p95_ms": round(vision_p95_ms, 2),
     }
     return state
 
@@ -123,6 +132,7 @@ def dashboard_state_loop(
     radar_reader=None,
     gps_reader=None,
     recorder=None,
+    sync_thresholds=None,
     interval: float = 0.2,
     start_time: float = 0.0,
     state_hz: int = 5,
@@ -152,9 +162,11 @@ def dashboard_state_loop(
         from src.dashboard.real_sensor_state import build_real_sensor_state
 
     print(f"[StateLoop] 后台状态更新线程已启动 (mode={mode}, interval={interval:.2f}s)")
+    sample_times = []
+    vision_latencies = []
     while not stop_event.is_set():
         try:
-            loop_start = time.time()
+            loop_start = time.monotonic()
             if mode == "mock":
                 state = build_mock_state(camera_available=camera_producer.is_available)
             elif mode == "hybrid":
@@ -174,15 +186,21 @@ def dashboard_state_loop(
                 if bgr_frame is not None:
                     _cue_vision_result_cache(vision_adapter)
             elif mode == "real":
-                bgr_frame = camera_producer.get_bgr_frame() if (enable_vision or recorder is not None) else None
+                if enable_vision or recorder is not None:
+                    bgr_frame, frame_capture_ns, camera_frame_id = camera_producer.get_bgr_frame_with_timestamp()
+                else:
+                    bgr_frame, frame_capture_ns, camera_frame_id = None, 0, -1
                 state = build_real_sensor_state(
                     camera_available=camera_producer.is_available,
                     radar_reader=radar_reader,
                     gps_reader=gps_reader,
                     frame=bgr_frame,
+                    frame_capture_monotonic_ns=frame_capture_ns,
+                    camera_frame_id=camera_frame_id,
                     vision_adapter=vision_adapter,
                     fusion_engine=synchronizer,
                     recorder=recorder,
+                    sync_thresholds=sync_thresholds,
                 )
                 if vision_adapter is not None:
                     _cue_vision_result_cache(vision_adapter)
@@ -190,7 +208,18 @@ def dashboard_state_loop(
                 state = build_mock_state(camera_available=camera_producer.is_available)
 
             # 统计循环耗时（毫秒）
-            state_loop_ms = round((time.time() - loop_start) * 1000.0, 2)
+            state_loop_ms = round((time.monotonic() - loop_start) * 1000.0, 2)
+            sample_times.append(loop_start)
+            sample_times = sample_times[-300:]
+            infer_ms = float(state.get("performance", {}).get("vision_infer_ms", 0.0))
+            if infer_ms > 0:
+                vision_latencies.append(infer_ms)
+                vision_latencies = vision_latencies[-300:]
+            actual_hz = ((len(sample_times) - 1) / (sample_times[-1] - sample_times[0])
+                         if len(sample_times) > 1 and sample_times[-1] > sample_times[0] else 0.0)
+            p50 = statistics.median(vision_latencies) if vision_latencies else 0.0
+            p95 = (sorted(vision_latencies)[min(len(vision_latencies) - 1,
+                   int(0.95 * len(vision_latencies)))]) if vision_latencies else 0.0
 
             # 附加运行时信息
             attach_runtime_info(
@@ -200,11 +229,16 @@ def dashboard_state_loop(
                 camera_available=camera_producer.is_available,
                 enable_vision=enable_vision,
                 state_loop_ms=state_loop_ms,
+                actual_sample_hz=actual_hz,
+                vision_p50_ms=p50,
+                vision_p95_ms=p95,
             )
             state_store.set_state(state)
         except Exception as e:
             print(f"[StateLoop] 状态更新异常: {e}")
-        time.sleep(interval)
+        remaining = interval - (time.monotonic() - loop_start)
+        if remaining > 0:
+            stop_event.wait(remaining)
     print("[StateLoop] 后台状态更新线程已退出")
 
 
@@ -225,6 +259,16 @@ def main() -> None:
     parser.add_argument("--record", action="store_true", help="record aligned real sensor and vision samples")
     parser.add_argument("--scene", type=str, default="dashboard_test", help="recording scene label")
     parser.add_argument("--record-output", type=str, default="data/recordings")
+    parser.add_argument("--operator", type=str, default="unknown")
+    parser.add_argument("--route", type=str, default="unknown")
+    parser.add_argument("--weather", type=str, default="unknown")
+    parser.add_argument("--road-condition", type=str, default="unknown")
+    parser.add_argument("--group-id", type=str, default="")
+    parser.add_argument("--risk-label", choices=["low", "mid", "high"], default=None,
+                        help="整段受控场景的初始风险标签，仍需人工复核")
+    parser.add_argument("--skip-gps-fix", action="store_true",
+                        help="仅室内调试使用；正式录制默认等待GPS定位")
+    parser.add_argument("--gps-timeout", type=int, default=90)
     parser.add_argument(
         "--enable-vision", action="store_true",
         help="hybrid 模式下启用视觉推理（需要 openvino 环境）",
@@ -246,6 +290,12 @@ def main() -> None:
         help="状态更新频率（Hz），默认 5",
     )
     args = parser.parse_args()
+
+    import yaml
+    recording_cfg = yaml.safe_load(
+        (_project_root / "configs" / "dashboard_recording.yaml").read_text(encoding="utf-8")
+    )
+    sync_thresholds = recording_cfg["sync"]
 
     # ── 1. 创建摄像头 ──
     from src.dashboard.frame_producer import CameraFrameProducer
@@ -275,7 +325,6 @@ def main() -> None:
     recorder = None
 
     if args.dashboard_mode == "real":
-        import yaml
         from src.sensors.gps_reader import GPSReader
         from src.sensors.radar_reader import RadarReader
 
@@ -307,7 +356,34 @@ def main() -> None:
                     "and start with --enable-vision"
                 )
             from src.dashboard.dashboard_recorder import DashboardRecorder
-            recorder = DashboardRecorder(_project_root / args.record_output, args.scene, args.profile)
+            if not args.skip_gps_fix:
+                print(f"[GPS] 等待有效定位（最多 {args.gps_timeout}s）...")
+                deadline = time.monotonic() + args.gps_timeout
+                gps_fixed = False
+                while time.monotonic() < deadline:
+                    if gps_reader.read_once().valid:
+                        gps_fixed = True
+                        break
+                if not gps_fixed:
+                    raise RuntimeError(
+                        "GPS未在超时内获得有效定位；室内管线测试可显式使用 --skip-gps-fix")
+            record_root = _project_root / args.record_output
+            record_root.mkdir(parents=True, exist_ok=True)
+            free_gb = shutil.disk_usage(record_root).free / (1024 ** 3)
+            min_free_gb = float(recording_cfg.get("storage", {}).get("min_free_gb", 2.0))
+            if free_gb < min_free_gb:
+                raise RuntimeError(f"录制目录可用空间仅 {free_gb:.2f} GiB，低于 {min_free_gb:.2f} GiB")
+            detection_cfg = yaml.safe_load(
+                (_project_root / "configs" / "vision" / "detection.yaml").read_text(encoding="utf-8")
+            )
+            session_fields = {"operator": args.operator, "route": args.route,
+                              "weather": args.weather, "road_condition": args.road_condition,
+                              "group_id": args.group_id or args.scene}
+            recorder = DashboardRecorder(
+                record_root, args.scene, args.profile,
+                recording_config=recording_cfg, session_fields=session_fields,
+                model_path=detection_cfg["detector"]["model_path"],
+                vision_config=args.vision_config, risk_label=args.risk_label)
             print(f"[Recorder] session={recorder.session_dir}")
 
     if args.dashboard_mode == "hybrid":
@@ -427,6 +503,7 @@ def main() -> None:
             "radar_reader": radar_reader,
             "gps_reader": gps_reader,
             "recorder": recorder,
+            "sync_thresholds": sync_thresholds,
             "interval": interval,
             "start_time": _start_time,
             "state_hz": args.state_hz,
@@ -474,7 +551,9 @@ def main() -> None:
         print("\nDashboard 已停止")
     finally:
         stop_event.set()
-        state_thread.join(timeout=2.0)
+        # 串口读取和视觉推理都有有界超时；必须等写线程真正退出后再关闭Recorder，
+        # 否则可能出现后台线程向已关闭文件写入的竞争。
+        state_thread.join()
 
         # 释放 VisionAdapter
         if vision_adapter is not None:
@@ -497,6 +576,11 @@ def main() -> None:
             gps_reader.stop()
         if recorder is not None:
             recorder.close()
+            result = subprocess.run(
+                [sys.executable, str(_project_root / "scripts" / "check_dashboard_recording.py"),
+                 str(recorder.session_dir)], check=False)
+            if result.returncode != 0:
+                print(f"[QualityCheck] 录制质量检查未通过 (exit={result.returncode})")
 
         camera.release()
 

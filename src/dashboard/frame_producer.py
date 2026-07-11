@@ -7,6 +7,7 @@
 from __future__ import annotations
 
 import threading
+import time
 from pathlib import Path
 from typing import Optional
 
@@ -33,6 +34,11 @@ class CameraFrameProducer:
         self._lock = threading.Lock()
         self._fallback_jpeg: Optional[bytes] = None
         self._available = False
+        self._latest_frame = None
+        self._latest_capture_ns = 0
+        self._latest_frame_id = -1
+        self._capture_stop = threading.Event()
+        self._capture_thread: Optional[threading.Thread] = None
 
         self._open()
 
@@ -62,7 +68,13 @@ class CameraFrameProducer:
             cap.set(cv2.CAP_PROP_FRAME_HEIGHT, self.height)
 
             self._cap = cap
+            self._latest_frame = frame.copy()
+            self._latest_capture_ns = time.monotonic_ns()
+            self._latest_frame_id = 0
             self._available = True
+            self._capture_thread = threading.Thread(
+                target=self._capture_loop, daemon=True, name="dashboard-camera-capture")
+            self._capture_thread.start()
             print(f"[CameraFrameProducer] 摄像头 {self.camera_id} 已就绪 ({self.width}x{self.height})")
 
         except ImportError:
@@ -91,23 +103,38 @@ class CameraFrameProducer:
 
     # ---- 公共接口 ----
 
+    def _capture_loop(self) -> None:
+        """唯一的底层摄像头消费者；页面、推理和录制只读取最新缓存。"""
+        while not self._capture_stop.is_set():
+            cap = self._cap
+            if cap is None:
+                break
+            try:
+                ret, frame = cap.read()
+                capture_ns = time.monotonic_ns()
+                if not ret or frame is None:
+                    self._capture_stop.wait(0.02)
+                    continue
+                with self._lock:
+                    self._latest_frame = frame.copy()
+                    self._latest_capture_ns = capture_ns
+                    self._latest_frame_id += 1
+            except Exception:
+                self._capture_stop.wait(0.02)
+
     def get_jpeg_frame(self) -> bytes:
         """读取一帧并编码为 JPEG bytes（线程安全）。
 
         摄像头不可用时返回回退提示图。
         """
         with self._lock:
-            if not self._available or self._cap is None:
+            if not self._available or self._latest_frame is None:
                 return self._fallback_jpeg or b""
 
             try:
                 import cv2
 
-                ret, frame = self._cap.read()
-                if not ret or frame is None:
-                    return self._fallback_jpeg or b""
-
-                ret, buf = cv2.imencode(".jpg", frame)
+                ret, buf = cv2.imencode(".jpg", self._latest_frame)
                 if not ret:
                     return self._fallback_jpeg or b""
 
@@ -124,22 +151,22 @@ class CameraFrameProducer:
             numpy.ndarray (H, W, 3) 或 None（摄像头不可用时）
         """
         with self._lock:
-            if not self._available or self._cap is None:
+            if not self._available or self._latest_frame is None:
                 return None
+            return self._latest_frame.copy()
 
-            try:
-                import cv2
-
-                ret, frame = self._cap.read()
-                if not ret or frame is None:
-                    return None
-
-                return frame.copy()
-            except Exception:
-                return None
+    def get_bgr_frame_with_timestamp(self):
+        """读取一帧，并返回成功采集后立即取得的单调时钟时间戳。"""
+        with self._lock:
+            if not self._available or self._latest_frame is None:
+                return None, 0, -1
+            return self._latest_frame.copy(), self._latest_capture_ns, self._latest_frame_id
 
     def release(self) -> None:
         """释放摄像头资源。"""
+        self._capture_stop.set()
+        if self._capture_thread is not None:
+            self._capture_thread.join(timeout=2.0)
         with self._lock:
             if self._cap is not None:
                 try:
@@ -148,6 +175,7 @@ class CameraFrameProducer:
                     pass
                 self._cap = None
             self._available = False
+            self._latest_frame = None
         print("[CameraFrameProducer] 摄像头已释放")
 
     @property

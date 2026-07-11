@@ -194,7 +194,9 @@ class RadarReader(BaseSensorReader):
             if len(self._buffer) > 4096:
                 self._buffer = self._buffer[-2048:]
 
-            result = self._extract_frame()
+            # Dashboard/训练消费频率低于雷达约20 Hz上报率时，必须丢弃积压旧帧，
+            # 否则每轮只取最老一帧会让雷达时间越来越落后于相机。
+            result = self._extract_latest_frame()
             if result is not None:
                 targets = []
                 nearest = -1.0
@@ -227,6 +229,15 @@ class RadarReader(BaseSensorReader):
             print(f"[RadarReader] 读取异常: {e}")
 
         return radar
+
+    def _extract_latest_frame(self) -> Optional[dict]:
+        """Drain every complete buffered frame and return only the newest valid one."""
+        latest: Optional[dict] = None
+        while True:
+            result = self._extract_frame()
+            if result is None:
+                return latest
+            latest = result
 
     def _extract_frame(self) -> Optional[dict]:
         """从缓冲区提取并解析一帧雷达数据。"""

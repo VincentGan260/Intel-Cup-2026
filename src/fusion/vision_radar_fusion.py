@@ -77,6 +77,7 @@ class FusedObject:
     risk_class: str                      # 视觉类别；仅雷达为 "unknown"
     bbox: Optional[BBox] = None          # 仅雷达为 None
     distance_m: float = -1.0             # 雷达真实距离；仅视觉为 -1
+    relative_speed_mps: float = 0.0       # 雷达相对速度；仅视觉为 0
     ttc_sec: float = -1.0                # 接近时的 TTC；否则 -1
     angle_deg: Optional[float] = None    # 方位角
     on_road: Optional[bool] = None       # 是否投影在路面（仅雷达相关）
@@ -315,7 +316,8 @@ class VisionRadarFusion:
                 risk = self._matched_risk(det, k_kin, image_w, image_h)
                 out.objects.append(FusedObject(
                     source="vision_radar", risk=risk, risk_class=det.risk_class,
-                    bbox=det.bbox, distance_m=targets[ti].distance_m, ttc_sec=ttc,
+                    bbox=det.bbox, distance_m=targets[ti].distance_m,
+                    relative_speed_mps=targets[ti].relative_speed_mps, ttc_sec=ttc,
                     angle_deg=eff_angle[ti], persist=persist[ti]))
                 out.n_vision_radar += 1
             else:  # 仅视觉：沿用已算好的 visual_risk
@@ -337,7 +339,8 @@ class VisionRadarFusion:
             risk = _clamp01(k_kin * lateral * persist[ti])  # 无类别先验
             out.objects.append(FusedObject(
                 source="radar", risk=risk, risk_class="unknown", bbox=None,
-                distance_m=t.distance_m, ttc_sec=ttc, angle_deg=eff_angle[ti],
+                distance_m=t.distance_m, relative_speed_mps=t.relative_speed_mps,
+                ttc_sec=ttc, angle_deg=eff_angle[ti],
                 on_road=on_road, persist=persist[ti]))
             out.n_radar_only += 1
 

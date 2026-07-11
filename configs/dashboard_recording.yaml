@@ -1,0 +1,24 @@
+schema_version: 2
+sync:
+  clock: monotonic_ns
+  primary_timeline: camera
+  radar_max_delta_ms: 100.0
+  gps_max_delta_ms: 1000.0
+quality:
+  min_sample_hz: 1.5
+  max_missing_frame_ratio: 0.0
+  max_vision_invalid_ratio: 0.05
+  max_radar_invalid_ratio: 0.50
+  max_gps_invalid_ratio: 0.25
+  max_radar_stale_ratio: 0.25
+  max_gps_stale_ratio: 0.25
+  max_vision_p95_ms: 1000.0
+storage:
+  min_free_gb: 2.0
+labels:
+  risk_levels: {low: 0, mid: 1, high: 2}
+  event_types: [normal_driving, static_obstacle, approaching_target, crossing, simulated_emergency_stop]
+versions:
+  feature_schema: dashboard-sample-v2
+  calibration: uncalibrated
+  label: risk-3level-v1

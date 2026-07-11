@@ -9,7 +9,7 @@ detector:
   # 模型权重路径（OpenVINO 目录）。
   # ★ 已切到微调 v2（单类障碍物，recall 翻倍）。FP16 在 models/yolo26n_v2_fp16_openvino_model。
   #   基础 COCO 版仍在 models/yolo26n_openvino_model（作基线对照）。
-  model_path: models/yolo26n_v2_openvino_model
+  model_path: models/yolo26n_v2_fp16_openvino_model
 
   # 置信度阈值：越高越严格，低置信度目标会被过滤。
   confidence: 0.25
@@ -29,7 +29,7 @@ detector:
 # 例如 project=yolo26n_demo、name=pred → runs/vision/detect/yolo26n_demo/pred/
 output:
   # 是否保存带框结果图。
-  save: true
+  save: false
 
   # predict 的 project 名（会出现在 runs/vision/detect/ 下面，建议用短英文名）。
   project: yolo26n_demo

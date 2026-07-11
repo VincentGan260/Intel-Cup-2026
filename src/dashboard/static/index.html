@@ -755,11 +755,11 @@
     vdIds[k + "_val"] = "vd-val-" + k;
   });
 
-  const runtimeFields = ["backend_uptime_sec","state_hz","last_update_time","camera_available","vision_enabled","vision_status","object_count","state_loop_ms","vision_infer_ms","approx_state_fps"];
+  const runtimeFields = ["backend_uptime_sec","state_hz","actual_sample_hz","last_update_time","camera_available","vision_enabled","vision_status","object_count","state_loop_ms","vision_infer_ms","vision_p50_ms","vision_p95_ms"];
   const runtimeLabels = {
     "backend_uptime_sec":"后端运行时长","state_hz":"状态更新频率","last_update_time":"最后更新时间",
     "camera_available":"摄像头状态","vision_enabled":"Vision 启用","vision_status":"Vision 状态",
-    "object_count":"当前目标数量","state_loop_ms":"状态循环耗时","vision_infer_ms":"Vision 推理耗时","approx_state_fps":"近似状态 FPS"
+    "object_count":"当前目标数量","state_loop_ms":"状态循环耗时","vision_infer_ms":"Vision 推理耗时","actual_sample_hz":"最近有效采样率","vision_p50_ms":"Vision P50 延迟","vision_p95_ms":"Vision P95 延迟"
   };
   const rtIds = {};
   const rtContainer = $("runtime-container");
@@ -884,8 +884,8 @@
         else if(k==="camera_available"||k==="vision_enabled"){el.textContent=v?"是":"否";el.style.color=v?"var(--green)":"var(--red)";}
         else if(k==="vision_status"){el.textContent=String(v!=null?v:"--");if(v==="real")el.style.color="var(--green)";else if(v==="off")el.style.color="var(--red)";else if(v==="mock")el.style.color="var(--yellow)";else el.style.color="var(--text-tertiary)";}
         else if(k==="state_loop_ms"&&typeof v==="number"){el.textContent=v.toFixed(2)+" ms";}
-        else if(k==="vision_infer_ms"&&typeof v==="number"){el.textContent=v.toFixed(2)+" ms";}
-        else if(k==="approx_state_fps"&&typeof v==="number"){el.textContent=v.toFixed(2)+" FPS";}
+        else if((k==="vision_infer_ms"||k==="vision_p50_ms"||k==="vision_p95_ms")&&typeof v==="number"){el.textContent=v.toFixed(2)+" ms";}
+        else if(k==="actual_sample_hz"&&typeof v==="number"){el.textContent=v.toFixed(2)+" Hz";}
         else if(typeof v==="number"){el.textContent=String(v);}
         else{el.textContent=String(v!=null?v:"--");}
       });

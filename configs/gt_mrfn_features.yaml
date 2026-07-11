@@ -1,9 +1,9 @@
-schema_version: 1
+schema_version: 2
 window_size: 5
 class_names: [low, mid, high]
 modalities:
   vision:
-    features: [person_count, vehicle_count, obstacle_count, drivable_area_ratio, max_visual_risk]
+    features: [person_count, vehicle_count, obstacle_count, drivable_area_ratio]
   radar:
     features: [nearest_distance_m, relative_speed_mps, target_confidence, min_ttc]
   gps:
