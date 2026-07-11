@@ -171,7 +171,12 @@ class GPSReader(BaseSensorReader):
             if self._serial is None or not self._serial.is_open:
                 return gps
 
-            for _ in range(20):  # 读 20 行或直到超时
+            # Dashboard must never wait up to 20 serial timeouts. Consume only
+            # bytes already available and enforce a small per-call budget.
+            deadline = time.monotonic() + 0.10
+            for _ in range(20):
+                if time.monotonic() >= deadline or self._serial.in_waiting <= 0:
+                    break
                 raw = self._serial.readline()
                 if not raw:
                     break

@@ -116,6 +116,24 @@ def _cue_vision_result_cache(vision_adapter) -> None:
         pass
 
 
+def vision_inference_loop(camera_producer, vision_adapter, stop_event: threading.Event) -> None:
+    """Run slow vision inference independently from state and cloud upload."""
+    print("[VisionWorker] asynchronous inference thread started")
+    while not stop_event.is_set():
+        frame = camera_producer.get_bgr_frame()
+        if frame is None:
+            stop_event.wait(0.1)
+            continue
+        started = time.monotonic()
+        vision_adapter.process(frame)
+        _cue_vision_result_cache(vision_adapter)
+        elapsed = time.monotonic() - started
+        if elapsed >= 5.0:
+            print(f"[VisionWorker] inference completed in {elapsed:.2f}s")
+        stop_event.wait(0.05)
+    print("[VisionWorker] asynchronous inference thread stopped")
+
+
 def dashboard_state_loop(
     state_store,
     camera_producer,
@@ -191,7 +209,7 @@ def dashboard_state_loop(
                 if bgr_frame is not None:
                     _cue_vision_result_cache(vision_adapter)
             elif mode == "real":
-                if enable_vision or recorder is not None:
+                if recorder is not None:
                     bgr_frame, frame_capture_ns, camera_frame_id = camera_producer.get_bgr_frame_with_timestamp()
                 else:
                     bgr_frame, frame_capture_ns, camera_frame_id = None, 0, -1
@@ -203,6 +221,7 @@ def dashboard_state_loop(
                     frame_capture_monotonic_ns=frame_capture_ns,
                     camera_frame_id=camera_frame_id,
                     vision_adapter=vision_adapter,
+                    process_vision=False,
                     fusion_engine=synchronizer,
                     recorder=recorder,
                     sync_thresholds=sync_thresholds,
@@ -601,6 +620,15 @@ def main() -> None:
 
     interval = 1.0 / max(args.state_hz, 1)
     stop_event = threading.Event()
+    vision_thread = None
+    if args.dashboard_mode == "real" and vision_adapter is not None:
+        vision_thread = threading.Thread(
+            target=vision_inference_loop,
+            args=(camera, vision_adapter, stop_event),
+            daemon=True,
+            name="dashboard-vision-inference",
+        )
+        vision_thread.start()
     _start_time = time.time()
     state_thread = threading.Thread(
         target=dashboard_state_loop,
@@ -677,6 +705,8 @@ def main() -> None:
         # 串口读取和视觉推理都有有界超时；必须等写线程真正退出后再关闭Recorder，
         # 否则可能出现后台线程向已关闭文件写入的竞争。
         state_thread.join()
+        if vision_thread is not None:
+            vision_thread.join(timeout=10.0)
         if cloud_sync is not None:
             cloud_sync.close()
 

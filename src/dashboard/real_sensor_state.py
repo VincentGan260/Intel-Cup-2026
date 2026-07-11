@@ -26,6 +26,7 @@ def build_real_sensor_state(
     frame_capture_monotonic_ns: int = 0,
     camera_frame_id: int = -1,
     vision_adapter=None,
+    process_vision: bool = True,
     fusion_engine=None,
     recorder=None,
     sync_thresholds=None,
@@ -73,11 +74,17 @@ def build_real_sensor_state(
     inference_ms = 0.0
     vision_start_ns = 0
     vision_finish_ns = 0
-    if vision_adapter is not None and frame is not None:
-        vision_start_ns = time.monotonic_ns()
-        vision = vision_adapter.process(frame)
-        vision_finish_ns = time.monotonic_ns()
-        inference_ms = (vision_finish_ns - vision_start_ns) / 1_000_000.0
+    if vision_adapter is not None:
+        if process_vision and frame is not None:
+            vision_start_ns = time.monotonic_ns()
+            vision = vision_adapter.process(frame)
+            vision_finish_ns = time.monotonic_ns()
+            inference_ms = (vision_finish_ns - vision_start_ns) / 1_000_000.0
+        else:
+            vision = vision_adapter.get_latest()
+            if vision is not None:
+                inference_ms = (float(getattr(vision, "detection_inference_ms", 0.0)) +
+                                float(getattr(vision, "segmentation_inference_ms", 0.0)))
         raw_result = vision_adapter.get_latest_vision_result()
         if raw_result is not None and fusion_engine is not None and radar_sync_fresh:
             fusion = fusion_engine.fuse_vision_result(raw_result, radar)
