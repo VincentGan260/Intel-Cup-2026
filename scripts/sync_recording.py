@@ -49,18 +49,17 @@ def main() -> int:
     ap = argparse.ArgumentParser(description="Align sensor samples to each camera frame")
     ap.add_argument("session", type=Path)
     ap.add_argument("--radar-ms", type=float, default=100.0)
-    ap.add_argument("--imu-ms", type=float, default=50.0)
     ap.add_argument("--gps-ms", type=float, default=1000.0)
     ap.add_argument("--output", default="fusion.jsonl")
     args = ap.parse_args()
 
     session = args.session.resolve()
     frames = read_jsonl(session / "frames.jsonl")
-    streams = {name: read_jsonl(session / f"{name}.jsonl") for name in ("radar", "imu", "gps")}
+    streams = {name: read_jsonl(session / f"{name}.jsonl") for name in ("radar", "gps")}
     for name in streams:
         streams[name].sort(key=lambda row: int(row["monotonic_ns"]))
     times = {name: [int(row["monotonic_ns"]) for row in rows] for name, rows in streams.items()}
-    tolerances = {"radar": args.radar_ms, "imu": args.imu_ms, "gps": args.gps_ms}
+    tolerances = {"radar": args.radar_ms, "gps": args.gps_ms}
 
     output = session / args.output
     count = 0

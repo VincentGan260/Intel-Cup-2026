@@ -1,0 +1,15 @@
+schema_version: 1
+window_size: 5
+class_names: [low, mid, high]
+modalities:
+  vision:
+    features: [person_count, vehicle_count, obstacle_count, drivable_area_ratio, max_visual_risk]
+  radar:
+    features: [nearest_distance_m, relative_speed_mps, target_confidence, min_ttc]
+  gps:
+    features: [speed_kmh]
+
+# 每个模态最后一维固定为 valid；无效模态的数值特征统一填 0。
+missing_value: 0.0
+valid_feature: valid
+score_weights: [0.0, 0.5, 1.0]

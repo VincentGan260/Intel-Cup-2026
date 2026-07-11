@@ -31,20 +31,15 @@ windows:
 
 dk2500:
   gps:
-    port: "/dev/ttyGPSNEO"        # 通过udev规则固定：NEO-M8N，波特率9600，输出NMEA
+    port: "/dev/ttyGPSNEO"       # udev稳定链接，实测指向/dev/ttyUSB0
     baudrate: 9600
     timeout: 1.0
     max_sentence_age_sec: 2.5
 
-  imu:
-    port: "/dev/ttyIMUWT61C"      # 待连接：WT61C IMU，需通过udev规则固定
-    baudrate: 115200
-    timeout: 0.1
-
   radar:
     model: "HLK-LD2451"
-    port: "/dev/ttyRadarLD2451"   # 通过udev规则固定：LD2451雷达，波特率256000，输出F4F3F2F1帧
-    baudrate: 256000
+    port: "/dev/ttyRadarLD2451"  # udev稳定链接，实测指向/dev/ttyUSB1
+    baudrate: 256000       # 同一颗雷达迁移上板时保持；若恢复出厂则为115200
     timeout: 0.5
     # 方向/角度来自雷达前向安装标定，与连接Windows还是DK2500无关。
     approaching_direction_code: 1
@@ -56,7 +51,7 @@ dk2500:
 
 # 摄像头配置（与端口无关，放在这里统一管理）
 camera:
-  device_id: 1         # 实测：内置摄像头为0，外接Logitech C910为1
+  device_id: 1         # DK2500外接Logitech C910；仍需连续录制验证V4L2稳定性
   width: 640
   height: 480
   fps: 30

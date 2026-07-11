@@ -47,7 +47,7 @@ def main() -> int:
     session = args.session.resolve()
     problems: list[str] = []
     streams: dict[str, list[dict[str, Any]]] = {}
-    for name in ("frames", "radar", "imu", "gps"):
+    for name in ("frames", "radar", "gps"):
         streams[name], errors = read_jsonl(session / f"{name}.jsonl")
         problems.extend(errors)
         if not streams[name]:
@@ -79,11 +79,11 @@ def main() -> int:
             "count": len(fusion),
             "valid_ratio": {
                 name: round(sum(bool(r.get(name, {}).get("valid")) for r in fusion) / len(fusion), 4)
-                for name in ("radar", "imu", "gps")
+                for name in ("radar", "gps")
             },
             "max_abs_delta_ms": {
                 name: round(max(abs(float(r[name]["delta_ms"])) for r in fusion if r.get(name, {}).get("delta_ms") is not None), 3)
-                for name in ("radar", "imu", "gps")
+                for name in ("radar", "gps")
             },
         }
 

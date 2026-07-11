@@ -1,4 +1,4 @@
-"""Record camera, radar, IMU and GPS into one timestamped session.
+"""Record camera, radar and GPS into one timestamped session.
 
 Each stream keeps its own acquisition timestamp.  Use monotonic_ns for later
 alignment; wall_time_ns is retained only for human-readable/event time.
@@ -27,7 +27,6 @@ if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
 from src.sensors.gps_reader import GPSReader
-from src.sensors.imu_reader import IMUReader
 from src.sensors.radar_reader import RadarReader
 
 
@@ -198,7 +197,7 @@ def _load_ports(profile: str) -> tuple[dict[str, Any], dict[str, Any]]:
 def _validate_real_ports(ports: dict[str, Any]) -> None:
     """Fail before recording if two serial sensors are configured to one port."""
     owners: dict[str, str] = {}
-    for name in ("gps", "imu", "radar"):
+    for name in ("gps", "radar"):
         port = str(ports.get(name, {}).get("port", "")).strip()
         if not port:
             raise ValueError(f"{name} serial port is empty")
@@ -261,38 +260,22 @@ def main() -> int:
     )
 
     writers = {name: JsonlWriter(session_dir / f"{name}.jsonl")
-               for name in ("frames", "radar", "imu", "gps")}
+               for name in ("frames", "radar", "gps")}
     stop = threading.Event()
-    counts = {"camera": 0, "radar": 0, "imu": 0, "gps": 0}
-    
-    readers = {}
-    if args.mode == "real":
-        import os
-        imu_port = ports.get("imu", {}).get("port", "")
-        if os.path.exists(imu_port):
-            readers["imu"] = IMUReader(args.mode, ports.get("imu", {}))
-        else:
-            print(f"[WARN] IMU port {imu_port} not found, skipping IMU recording")
-            readers["imu"] = IMUReader("mock", {})
-        readers["radar"] = RadarReader(args.mode, ports.get("radar", {}))
-        readers["gps"] = GPSReader(args.mode, ports.get("gps", {}))
-    else:
-        readers = {
-            "radar": RadarReader(args.mode, ports.get("radar", {})),
-            "imu": IMUReader(args.mode, ports.get("imu", {})),
-            "gps": GPSReader(args.mode, ports.get("gps", {})),
-        }
-    
+    counts = {"camera": 0, "radar": 0, "gps": 0}
+    readers = {
+        "radar": RadarReader(args.mode, ports.get("radar", {})),
+        "gps": GPSReader(args.mode, ports.get("gps", {})),
+    }
     threads = [
         threading.Thread(target=_sensor_worker,
                          args=(name, reader, writers[name], started_mono_ns, stop,
                                args.sensor_hz, counts), daemon=True, name=f"rec-{name}")
         for name, reader in readers.items()
     ]
-    camera_id = args.camera_id if args.camera_id is not None else int(camera_cfg.get("device_id", 0))
     threads.append(threading.Thread(
         target=_camera_worker,
-        args=(args.mode, camera_id,
+        args=(args.mode, args.camera_id if args.camera_id is not None else int(camera_cfg.get("device_id", 0)),
               int(camera_cfg.get("width", 640)), int(camera_cfg.get("height", 480)),
               args.camera_fps or float(camera_cfg.get("fps", 30)), frames_dir, writers["frames"],
               started_mono_ns, stop, counts), daemon=True, name="rec-camera"))
