@@ -46,7 +46,7 @@ dk2500:
     angle_sign: -1
 
   motor:
-    i2c_bus: 1
+    i2c_bus: 3
     driver_address: "0x5A"
 
 # 摄像头配置（与端口无关，放在这里统一管理）
