@@ -718,8 +718,8 @@
     sensorsContainer.appendChild(div);
   });
 
-  const sensorDataFields = ["radar_targets", "radar_nearest", "radar_ttc", "gps_speed", "gps_position", "gps_fix", "gps_satellites"];
-  const sensorDataLabels = {"radar_targets":"雷达目标数","radar_nearest":"最近距离","radar_ttc":"最小 TTC","gps_speed":"GPS 速度","gps_position":"经纬度","gps_fix":"定位质量","gps_satellites":"卫星数"};
+  const sensorDataFields = ["radar_targets", "radar_nearest", "radar_ttc", "gps_speed", "gps_position", "gps_fix"];
+  const sensorDataLabels = {"radar_targets":"雷达目标数","radar_nearest":"最近距离","radar_ttc":"最小 TTC","gps_speed":"GPS 速度","gps_position":"经纬度","gps_fix":"定位质量"};
   const sensorDataIds = {};
   const sensorDataContainer = $("sensor-data-container");
   sensorDataFields.forEach(k => {
@@ -732,9 +732,9 @@
     sensorDataIds[k] = "sensor-data-" + k;
   });
 
-  const visionFields = ["valid","object_count","person_count","vehicle_count","max_confidence","drivable_area_ratio","max_visual_risk"];
-  const visionFieldLabels = {"valid":"Vision 有效","object_count":"目标数量","person_count":"行人数量","vehicle_count":"车辆数量","max_confidence":"最高置信度","drivable_area_ratio":"可行驶区域比例","max_visual_risk":"最大视觉风险"};
-  const visionFieldBars = {"max_confidence":true,"drivable_area_ratio":true,"max_visual_risk":true};
+  const visionFields = ["valid","object_count","person_count","vehicle_count","max_confidence","drivable_area_ratio"];
+  const visionFieldLabels = {"valid":"Vision 有效","object_count":"目标数量","person_count":"行人数量","vehicle_count":"车辆数量","max_confidence":"最高置信度","drivable_area_ratio":"可行驶区域比例"};
+  const visionFieldBars = {"max_confidence":true,"drivable_area_ratio":true};
   const vdIds = {};
   const vdContainer = $("vision-details-container");
   visionFields.forEach(k => {
@@ -866,7 +866,6 @@
       $(sensorDataIds.gps_speed).textContent=typeof gd.speed_kmh==="number"?gd.speed_kmh.toFixed(1)+" km/h":"--";
       $(sensorDataIds.gps_position).textContent=gd.valid?gd.latitude.toFixed(6)+", "+gd.longitude.toFixed(6):"未定位";
       $(sensorDataIds.gps_fix).textContent=gd.fix_quality!=null?String(gd.fix_quality):"--";
-      $(sensorDataIds.gps_satellites).textContent=gd.satellites!=null?String(gd.satellites):"--";
 
       const vd=s.vision_details||{};
       visionFields.forEach(k=>{

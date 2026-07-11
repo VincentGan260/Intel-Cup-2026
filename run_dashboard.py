@@ -122,6 +122,7 @@ def dashboard_state_loop(
     enable_imu: bool = False,
     radar_reader=None,
     gps_reader=None,
+    recorder=None,
     interval: float = 0.2,
     start_time: float = 0.0,
     state_hz: int = 5,
@@ -173,11 +174,18 @@ def dashboard_state_loop(
                 if bgr_frame is not None:
                     _cue_vision_result_cache(vision_adapter)
             elif mode == "real":
+                bgr_frame = camera_producer.get_bgr_frame() if (enable_vision or recorder is not None) else None
                 state = build_real_sensor_state(
                     camera_available=camera_producer.is_available,
                     radar_reader=radar_reader,
                     gps_reader=gps_reader,
+                    frame=bgr_frame,
+                    vision_adapter=vision_adapter,
+                    fusion_engine=synchronizer,
+                    recorder=recorder,
                 )
+                if vision_adapter is not None:
+                    _cue_vision_result_cache(vision_adapter)
             else:
                 state = build_mock_state(camera_available=camera_producer.is_available)
 
@@ -214,6 +222,9 @@ def main() -> None:
         "--profile", type=str, default="dk2500", choices=["windows", "dk2500"],
         help="sensor_ports.yaml profile used in real mode",
     )
+    parser.add_argument("--record", action="store_true", help="record aligned real sensor and vision samples")
+    parser.add_argument("--scene", type=str, default="dashboard_test", help="recording scene label")
+    parser.add_argument("--record-output", type=str, default="data/recordings")
     parser.add_argument(
         "--enable-vision", action="store_true",
         help="hybrid 模式下启用视觉推理（需要 openvino 环境）",
@@ -261,6 +272,7 @@ def main() -> None:
     imu_init_ok = False
     radar_reader = None
     gps_reader = None
+    recorder = None
 
     if args.dashboard_mode == "real":
         import yaml
@@ -276,6 +288,27 @@ def main() -> None:
         radar_reader.start()
         gps_reader.start()
         print(f"[RealSensors] profile={args.profile}; IMU and models disabled")
+
+        if args.enable_vision:
+            from src.fusion.vision_adapter import VisionAdapter
+            from src.fusion.vision_radar_fusion import VisionRadarFusion
+            vision_adapter = VisionAdapter(
+                pipeline_config_path=args.vision_config, vision_enabled=True, use_camera=False)
+            vision_adapter.start()
+            vision_init_ok = bool(vision_adapter.vision_enabled)
+            if vision_init_ok:
+                synchronizer = VisionRadarFusion()
+            else:
+                vision_adapter = None
+        if args.record:
+            if not vision_init_ok:
+                raise RuntimeError(
+                    "--record requires a working vision pipeline; fix model/OpenVINO setup "
+                    "and start with --enable-vision"
+                )
+            from src.dashboard.dashboard_recorder import DashboardRecorder
+            recorder = DashboardRecorder(_project_root / args.record_output, args.scene, args.profile)
+            print(f"[Recorder] session={recorder.session_dir}")
 
     if args.dashboard_mode == "hybrid":
         print("-" * 55)
@@ -393,6 +426,7 @@ def main() -> None:
             "enable_imu": args.enable_imu and imu_init_ok,
             "radar_reader": radar_reader,
             "gps_reader": gps_reader,
+            "recorder": recorder,
             "interval": interval,
             "start_time": _start_time,
             "state_hz": args.state_hz,
@@ -423,7 +457,9 @@ def main() -> None:
         print(f"  Vision: {'已启用' if (args.enable_vision and vision_init_ok) else '关闭'}")
     elif args.dashboard_mode == "real":
         print(f"  GPS/Radar: real ({args.profile})")
-        print("  IMU/Vision/Risk model: disabled")
+        print(f"  Vision: {'enabled' if vision_init_ok else 'disabled'}")
+        print(f"  Recording: {recorder.session_dir if recorder else 'disabled'}")
+        print("  IMU/Risk model: disabled")
     print("=" * 55)
 
     try:
@@ -459,6 +495,8 @@ def main() -> None:
             radar_reader.stop()
         if gps_reader is not None:
             gps_reader.stop()
+        if recorder is not None:
+            recorder.close()
 
         camera.release()
 
