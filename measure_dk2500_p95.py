@@ -45,6 +45,8 @@ def main() -> None:
         "--motor", motor_mode,
         "--latency-log", log_path,
         "--force-alert-level", "2",
+        "--latency-only",
+        "--overwrite-latency-log",
     ]
     if args.loops:
         forwarded.extend(["--loops", str(args.loops)])

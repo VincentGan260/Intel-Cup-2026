@@ -20,18 +20,23 @@ def _percentile(values: list[float], q: float) -> float:
 
 
 class LatencyTracker:
-    def __init__(self, output_path: str | Path | None = None) -> None:
+    def __init__(self, output_path: str | Path | None = None, *, overwrite: bool = False) -> None:
         self.values_ms: list[float] = []
+        self._last_sample_start_ns = 0
         self.output_path = Path(output_path) if output_path else None
         self._file = None
         if self.output_path:
             self.output_path.parent.mkdir(parents=True, exist_ok=True)
-            self._file = self.output_path.open("a", encoding="utf-8")
+            self._file = self.output_path.open("w" if overwrite else "a", encoding="utf-8")
 
     def add(self, *, sample_start_ns: int, command_dispatch_ns: int,
             risk_level: int, frame_id: int = -1) -> float | None:
-        if sample_start_ns <= 0 or command_dispatch_ns < sample_start_ns:
+        # One physical sensor sample may be returned from a reader cache many
+        # times. Never turn those repeated reads into latency observations.
+        if (sample_start_ns <= self._last_sample_start_ns
+                or command_dispatch_ns < sample_start_ns):
             return None
+        self._last_sample_start_ns = sample_start_ns
         latency_ms = (command_dispatch_ns - sample_start_ns) / 1_000_000.0
         self.values_ms.append(latency_ms)
         if self._file:
