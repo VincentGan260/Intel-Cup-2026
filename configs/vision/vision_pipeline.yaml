@@ -7,6 +7,11 @@ source: https://ultralytics.com/images/bus.jpg
 # 是否启用语义分割（关闭时仅做检测 + 视觉风险，in_drivable_area 为 None）
 enable_segmentation: true
 
+# Dashboard 正式推理部署契约；VisionAdapter 启动时会校验，避免配置漂移。
+deployment_contract:
+  detection: {precision: INT8, device: NPU}
+  segmentation: {precision: FP16, device: GPU}
+
 # 子模块配置文件路径
 detection_config: configs/vision/detection.yaml
 segmentation_config: configs/vision/segmentation_adas_fp16.yaml

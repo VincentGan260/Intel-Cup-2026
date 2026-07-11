@@ -153,6 +153,8 @@ class VisionData(SensorBase):
     drivable_area_ratio: float = 0.0  # 可行驶区域占画面比例
     center_drivable_score: float = 0.0  # 画面中心区域可行驶评分
     max_visual_risk: float = 0.0  # 单帧最大视觉风险 R_obs [0, 1]
+    detection_inference_ms: float = 0.0
+    segmentation_inference_ms: float = 0.0
 
     def __post_init__(self) -> None:
         self.source = "camera"

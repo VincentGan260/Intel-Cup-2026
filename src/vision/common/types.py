@@ -40,3 +40,5 @@ class VisionResult:
     # 便于 fusion 直接读取，与 segmentation.drivable_mask 在分割开启时一致
     drivable_mask: Optional[np.ndarray] = None
     max_visual_risk: float = 0.0
+    detection_inference_ms: float = 0.0
+    segmentation_inference_ms: float = 0.0

@@ -46,6 +46,7 @@ class DashboardRecorder:
     def __init__(self, output: Path, scene: str, profile: str, *,
                  recording_config: dict | None = None, session_fields: dict | None = None,
                  model_path: str = "", vision_config: str = "",
+                 vision_runtime: dict | None = None,
                  risk_label: str | None = None) -> None:
         label = time.strftime("%Y%m%d_%H%M%S")
         self.session_dir = (output / f"{label}_{scene}_dashboard").resolve()
@@ -75,6 +76,7 @@ class DashboardRecorder:
                       "sync_thresholds_ms": cfg.get("sync", {}),
                       "quality_limits": cfg.get("quality", {}),
                       "model_path": model_path, "vision_config": vision_config,
+                      "vision_runtime": vision_runtime or {},
                       "git_commit": git_commit,
                       "model_sha256": _sha256(model_abs),
                       "vision_config_sha256": _sha256(vision_abs),
@@ -161,6 +163,10 @@ class DashboardRecorder:
             "radar": radar_features, "gps": gps_features,
             "vision": vision_features, "fusion": fusion_features,
             "vision_inference_ms": round(float(inference_ms), 3),
+            "vision_module_inference_ms": {
+                "detection": round(float(getattr(vision, "detection_inference_ms", 0.0)), 3),
+                "segmentation": round(float(getattr(vision, "segmentation_inference_ms", 0.0)), 3),
+            },
             "timestamps": timestamps,
             "label": {"risk_level": self._risk_label, "event_id": None, "note": ""},
         }

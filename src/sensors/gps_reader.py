@@ -1,6 +1,6 @@
 """GPS 读取器封装。
 
-从 gps_test1.py 提取核心 NMEA 解析逻辑，不直接 import 原脚本。
+从早期GPS测试脚本提取核心 NMEA 解析逻辑，不直接 import 原脚本。
 支持 real / mock 两种模式。
 
 real 模式：

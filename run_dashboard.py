@@ -403,7 +403,9 @@ def main() -> None:
                 record_root, args.scene, args.profile,
                 recording_config=recording_cfg, session_fields=session_fields,
                 model_path=detection_cfg["detector"]["model_path"],
-                vision_config=args.vision_config, risk_label=args.risk_label)
+                vision_config=args.vision_config,
+                vision_runtime=vision_adapter.get_runtime_info(),
+                risk_label=args.risk_label)
             print(f"[Recorder] session={recorder.session_dir}")
 
     if args.dashboard_mode == "hybrid":

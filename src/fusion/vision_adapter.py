@@ -54,6 +54,7 @@ class VisionAdapter:
         self._config: Optional[dict] = None
         self._latest: Optional[VisionData] = None
         self._latest_vision_result: Optional[VisionResult] = None
+        self._runtime_info: dict = {}
 
     # ---- 生命周期 ----
 
@@ -90,6 +91,7 @@ class VisionAdapter:
                 det_path = PROJECT_ROOT / det_path
             with open(det_path, "r", encoding="utf-8") as f:
                 det_config = yaml.safe_load(f)
+            det_cfg = det_config["detector"]
             detector = build_detector_from_config(det_config, project_root=PROJECT_ROOT)
 
             # 3. 构建分割器（可选）
@@ -106,6 +108,30 @@ class VisionAdapter:
                     with open(seg_path, "r", encoding="utf-8") as f:
                         seg_config = yaml.safe_load(f)
                     segmenter = build_segmenter_from_config(seg_config, project_root=PROJECT_ROOT)
+
+            det_runtime = {
+                "model_path": str(det_cfg["model_path"]),
+                "precision": str(det_cfg.get("precision", "UNKNOWN")).upper(),
+                "device": str(det_cfg.get("device", "CPU")).upper(),
+                "backend": str(det_cfg.get("backend", "yolo_ultralytics")),
+            }
+            seg_runtime = None
+            if enable_seg and segmenter is not None:
+                seg_runtime = {
+                    "model_path": str(seg_config["model"]["xml_path"]),
+                    "precision": str(seg_config.get("openvino", {}).get("inference_precision", "UNKNOWN")).upper(),
+                    "device": str(seg_config.get("openvino", {}).get("device", "CPU")).upper(),
+                    "backend": "openvino",
+                }
+            self._runtime_info = {"detection": det_runtime, "segmentation": seg_runtime}
+            for module, expected in self._config.get("deployment_contract", {}).items():
+                actual = self._runtime_info.get(module)
+                if actual:
+                    for key in ("precision", "device"):
+                        if str(actual[key]).upper() != str(expected[key]).upper():
+                            raise RuntimeError(
+                                f"{module} 部署契约不匹配: {key}={actual[key]}, expected={expected[key]}"
+                            )
 
             # 4. 构建管线
             self._pipeline = VisionPipeline(
@@ -124,6 +150,10 @@ class VisionAdapter:
                     print(f"[VisionAdapter] 已打开摄像头 {self.camera_id}")
 
             print("[VisionAdapter] 视觉管线初始化成功")
+            seg_label = (f"{seg_runtime['precision']}@{seg_runtime['device']}"
+                         if seg_runtime else "OFF")
+            print(f"[VisionAdapter] 部署: detection={det_runtime['precision']}@{det_runtime['device']}, "
+                  f"segmentation={seg_label}")
             if not enable_seg:
                 print("[VisionAdapter]   → 分割已禁用（仅检测）")
 
@@ -230,6 +260,8 @@ class VisionAdapter:
                 max_confidence=max_conf,
                 drivable_area_ratio=round(drivable_ratio, 4),
                 max_visual_risk=max(0.0, min(1.0, vision_result.max_visual_risk)),
+                detection_inference_ms=round(vision_result.detection_inference_ms, 3),
+                segmentation_inference_ms=round(vision_result.segmentation_inference_ms, 3),
             )
 
         except Exception as e:
@@ -249,3 +281,7 @@ class VisionAdapter:
         仅在视觉启用且管线已初始化时返回有效数据。
         """
         return self._latest_vision_result
+
+    def get_runtime_info(self) -> dict:
+        """返回已校验的模型精度、设备和路径，供 Dashboard 与录制使用。"""
+        return {key: (dict(value) if value else None) for key, value in self._runtime_info.items()}

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import time
 import numpy as np
 
 from src.vision.common.interfaces import BaseDetector, BaseSegmenter
@@ -32,13 +33,18 @@ class VisionPipeline:
     def process(self, frame: np.ndarray) -> VisionResult:
         image_height, image_width = frame.shape[:2]
 
+        detection_start = time.perf_counter()
         detections = self.detector.infer(frame)
+        detection_ms = (time.perf_counter() - detection_start) * 1000.0
 
         segmentation = None
         drivable_mask = None
+        segmentation_ms = 0.0
 
         if self.enable_segmentation and self.segmenter is not None:
+            segmentation_start = time.perf_counter()
             segmentation = self.segmenter.infer(frame)
+            segmentation_ms = (time.perf_counter() - segmentation_start) * 1000.0
             drivable_mask = segmentation.drivable_mask
 
             detections = attach_drivable_area_flag(
@@ -62,4 +68,6 @@ class VisionPipeline:
             segmentation=segmentation,
             drivable_mask=drivable_mask,
             max_visual_risk=max_visual_risk,
+            detection_inference_ms=detection_ms,
+            segmentation_inference_ms=segmentation_ms,
         )
