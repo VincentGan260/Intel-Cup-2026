@@ -68,6 +68,7 @@ class CloudSyncClient:
         self._state_queue: queue.Queue = queue.Queue(maxsize=2)
         self._video_queue: queue.Queue = queue.Queue()
         self._last_state_queued = 0.0
+        self._state_uploaded = 0
         self._record_done = threading.Event()
         self._threads = []
 
@@ -123,13 +124,19 @@ class CloudSyncClient:
             try:
                 response = requests.post(url, json=payload, timeout=self.request_timeout)
                 response.raise_for_status()
+                self._state_uploaded += 1
+                if self._state_uploaded == 1 or self._state_uploaded % 10 == 0:
+                    print(f"[CloudSync] state uploaded count={self._state_uploaded} "
+                          f"id={response.json().get('id', '?')}")
             except Exception as exc:
                 print(f"[CloudSync] state upload failed: {exc}")
 
     def _open_writer(self, frame, path: Path):
         import cv2
         height, width = frame.shape[:2]
-        for codec in ("avc1", "H264", "mp4v"):
+        # MPEG-4 Part 2 is substantially lighter than software H.264 on DK2500.
+        # Prefer it so the recorder can sustain the requested wall-clock FPS.
+        for codec in ("mp4v", "avc1", "H264"):
             writer = cv2.VideoWriter(
                 str(path), cv2.VideoWriter_fourcc(*codec), self.video_fps, (width, height))
             if writer.isOpened():
@@ -193,22 +200,37 @@ class CloudSyncClient:
             if not path.is_file():
                 continue
             try:
+                duration_s = self._probe_duration(path)
                 with path.open("rb") as source:
                     response = requests.post(
                         url,
                         data={"device_id": self.device_id,
                               "started_at": started_at.isoformat(),
-                              "duration_s": str(self.segment_seconds)},
+                              "duration_s": str(duration_s)},
                         files={"file": (path.name, source, "video/mp4")},
                         timeout=max(60.0, self.request_timeout),
                     )
                 response.raise_for_status()
                 path.unlink()
-                print(f"[CloudSync] video uploaded {path.name}")
+                print(f"[CloudSync] video uploaded {path.name} duration={duration_s:.1f}s")
             except Exception as exc:
                 print(f"[CloudSync] video upload failed {path.name}: {exc}")
                 if not self._stop.wait(10.0):
                     self._video_queue.put((path, started_at))
+
+    def _probe_duration(self, path: Path) -> float:
+        """Return the playable MP4 duration instead of assuming segment length."""
+        try:
+            import cv2
+            capture = cv2.VideoCapture(str(path))
+            fps = float(capture.get(cv2.CAP_PROP_FPS) or 0.0)
+            frames = float(capture.get(cv2.CAP_PROP_FRAME_COUNT) or 0.0)
+            capture.release()
+            if fps > 0.0 and frames > 0.0:
+                return max(0.1, frames / fps)
+        except Exception:
+            pass
+        return self.segment_seconds
 
     def _started_at_from_path(self, path: Path) -> datetime:
         try:
