@@ -11,7 +11,7 @@ import argparse
 import time
 from pathlib import Path
 
-from dashboard_launch_utils import PROJECT_ROOT, copy_session, newest_session, run_dashboard, zip_session
+from scripts.dashboard_launch_utils import PROJECT_ROOT, copy_session, newest_session, run_dashboard, zip_session
 
 
 def main() -> int:

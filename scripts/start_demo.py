@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import argparse
 
-from dashboard_launch_utils import run_dashboard
+from scripts.dashboard_launch_utils import run_dashboard
 
 
 def main() -> int:
