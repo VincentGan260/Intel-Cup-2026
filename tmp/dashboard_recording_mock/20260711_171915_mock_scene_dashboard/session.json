@@ -1,0 +1,60 @@
+{
+  "schema_version": 2,
+  "scene": "mock_scene",
+  "profile": "windows",
+  "host": "Master",
+  "started_wall_time_ns": 1783761557462546300,
+  "started_monotonic_ns": 71382737484300,
+  "alignment_clock": "monotonic_ns",
+  "primary_timeline": "camera",
+  "sync_thresholds_ms": {
+    "clock": "monotonic_ns",
+    "primary_timeline": "camera",
+    "radar_max_delta_ms": 100.0,
+    "gps_max_delta_ms": 1000.0
+  },
+  "quality_limits": {
+    "min_sample_hz": 1.5,
+    "max_missing_frame_ratio": 0.0,
+    "max_vision_invalid_ratio": 0.05,
+    "max_radar_invalid_ratio": 0.5,
+    "max_gps_invalid_ratio": 0.25,
+    "max_radar_stale_ratio": 0.25,
+    "max_gps_stale_ratio": 0.25,
+    "max_vision_p95_ms": 1000.0
+  },
+  "model_path": "",
+  "vision_config": "",
+  "git_commit": "2ee1eaad4269b523b6f723eaca66ca0f4d3581a5",
+  "model_sha256": "2006bf8c7151f39daacf2206c51b6a8cbe10ccfed7b6a3d74b3d59a43c138b3b",
+  "vision_config_sha256": "2006bf8c7151f39daacf2206c51b6a8cbe10ccfed7b6a3d74b3d59a43c138b3b",
+  "versions": {
+    "feature_schema": "dashboard-sample-v2",
+    "calibration": "uncalibrated",
+    "label": "risk-3level-v1"
+  },
+  "labels": {
+    "risk_levels": {
+      "low": 0,
+      "mid": 1,
+      "high": 2
+    },
+    "event_types": [
+      "normal_driving",
+      "static_obstacle",
+      "approaching_target",
+      "crossing",
+      "simulated_emergency_stop"
+    ]
+  },
+  "contains": [
+    "raw_frame",
+    "radar",
+    "gps",
+    "vision_features",
+    "vision_radar_fusion"
+  ],
+  "group_id": "mock-group",
+  "ended_wall_time_ns": 1783761637859510900,
+  "sample_count": 7
+}

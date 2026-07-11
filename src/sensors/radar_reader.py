@@ -129,6 +129,7 @@ class RadarReader(BaseSensorReader):
         super().__init__(mode, config)
         self._serial: Optional["serial.Serial"] = None  # noqa: F821
         self._buffer = bytearray()
+        self.last_sample_monotonic_ns: int = 0
         self.approaching_direction_code = int(self.config.get("approaching_direction_code", 1))
         if self.approaching_direction_code not in (0, 1):
             raise ValueError("radar approaching_direction_code must be 0 or 1")
@@ -190,6 +191,8 @@ class RadarReader(BaseSensorReader):
             if self._serial.in_waiting > 0:
                 chunk = self._serial.read(self._serial.in_waiting)
                 self._buffer.extend(chunk)
+                # LD2451无硬件时间戳；以本批串口字节到达主机并读完的时刻作为保守到达时间。
+                self.last_sample_monotonic_ns = time.monotonic_ns()
 
             if len(self._buffer) > 4096:
                 self._buffer = self._buffer[-2048:]

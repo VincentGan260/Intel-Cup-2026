@@ -1,0 +1,65 @@
+{
+  "passed": true,
+  "errors": [],
+  "sample_count": 7,
+  "modalities": {
+    "frame": {
+      "total": 7,
+      "valid": 7,
+      "valid_ratio": 1.0
+    },
+    "vision": {
+      "total": 7,
+      "valid": 7,
+      "valid_ratio": 1.0
+    },
+    "radar": {
+      "total": 7,
+      "valid": 7,
+      "valid_ratio": 1.0
+    },
+    "gps": {
+      "total": 7,
+      "valid": 7,
+      "valid_ratio": 1.0
+    },
+    "fusion": {
+      "total": 7,
+      "valid": 0,
+      "valid_ratio": 0.0
+    }
+  },
+  "actual_sample_hz": 60.703799855524956,
+  "sample_interval_ms": {
+    "p50": 11.83885,
+    "p95": 39.6585,
+    "max": 39.6585
+  },
+  "vision_latency_ms": {
+    "p50": 0.0078,
+    "p95": 0.0114,
+    "max": 0.0114
+  },
+  "radar_delta_ms": {
+    "p50": 0.0706,
+    "p95": 0.0904,
+    "max": 0.0904,
+    "over_threshold": 0
+  },
+  "gps_delta_ms": {
+    "p50": 0.0848,
+    "p95": 0.1118,
+    "max": 0.1118,
+    "over_threshold": 0
+  },
+  "vision": {
+    "empty_detection_ratio": 0.0,
+    "drivable_area_ratio_min": 0.4,
+    "drivable_area_ratio_max": 0.4,
+    "drivable_area_abnormal_count": 0
+  },
+  "radar_target_frame_ratio": 0.8571428571428571,
+  "vision_radar_match_frame_ratio": 0.0,
+  "radar_stale_ratio": 0.0,
+  "gps_stale_ratio": 0.0
+}

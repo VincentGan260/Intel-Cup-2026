@@ -58,6 +58,10 @@ def check_session(session_dir: Path) -> tuple[dict, int]:
         nonzero = [value for value in values if value]
         if len(nonzero) != len(values) or any(b <= a for a, b in zip(nonzero, nonzero[1:])):
             errors.append(f"{key} 缺失或未严格递增")
+    for key in ("radar_sample_monotonic_ns", "gps_sample_monotonic_ns"):
+        values = [row.get("timestamps", {}).get(key, 0) for row in rows]
+        if any(not value for value in values) or any(b < a for a, b in zip(values, values[1:])):
+            errors.append(f"{key} 缺失或发生倒退")
 
     missing_frames = []
     for row in rows:
@@ -82,8 +86,14 @@ def check_session(session_dir: Path) -> tuple[dict, int]:
     duration_s = (camera_ns[-1] - camera_ns[0]) / 1e9 if len(camera_ns) > 1 else 0.0
     actual_hz = (len(camera_ns) - 1) / duration_s if duration_s > 0 else 0.0
     vision_latency = [float(row.get("timestamps", {}).get("vision_latency_ms", 0)) for row in rows]
-    radar_delta = [float(row.get("timestamps", {}).get("radar_delta_ms", 0)) for row in rows]
-    gps_delta = [float(row.get("timestamps", {}).get("gps_delta_ms", 0)) for row in rows]
+    radar_delta_raw = [row.get("timestamps", {}).get("radar_delta_ms") for row in rows]
+    gps_delta_raw = [row.get("timestamps", {}).get("gps_delta_ms") for row in rows]
+    radar_delta = [float(x) for x in radar_delta_raw if isinstance(x, (int, float))]
+    gps_delta = [float(x) for x in gps_delta_raw if isinstance(x, (int, float))]
+    if len(radar_delta) != len(rows):
+        errors.append("存在缺失的雷达实际样本到达时间")
+    if len(gps_delta) != len(rows):
+        errors.append("存在缺失的GPS实际样本到达时间")
     thresholds = meta.get("sync_thresholds_ms", {})
     drivable = [float((row.get("vision") or {}).get("drivable_area_ratio", 0)) for row in rows
                 if row.get("vision")]
@@ -97,10 +107,12 @@ def check_session(session_dir: Path) -> tuple[dict, int]:
         invalid_ratio = 1.0 - modalities[modality]["valid_ratio"]
         if invalid_ratio > float(limits.get(limit_name, 1.0)):
             errors.append(f"{modality}无效比例 {invalid_ratio:.1%} 过高")
-    radar_stale_ratio = (sum(x > float(thresholds.get("radar_max_delta_ms", 100.0))
-                             for x in radar_delta) / len(rows)) if rows else 1.0
-    gps_stale_ratio = (sum(x > float(thresholds.get("gps_max_delta_ms", 1000.0))
-                           for x in gps_delta) / len(rows)) if rows else 1.0
+    radar_stale_ratio = (((len(rows) - len(radar_delta)) + sum(
+        abs(x) > float(thresholds.get("radar_max_delta_ms", 100.0)) for x in radar_delta
+    )) / len(rows)) if rows else 1.0
+    gps_stale_ratio = (((len(rows) - len(gps_delta)) + sum(
+        abs(x) > float(thresholds.get("gps_max_delta_ms", 1000.0)) for x in gps_delta
+    )) / len(rows)) if rows else 1.0
     if rows and actual_hz < float(limits.get("min_sample_hz", 0.0)):
         errors.append(f"实际采样率 {actual_hz:.2f} Hz 低于最低要求")
     if radar_stale_ratio > float(limits.get("max_radar_stale_ratio", 1.0)):
@@ -121,10 +133,10 @@ def check_session(session_dir: Path) -> tuple[dict, int]:
         "passed": not errors, "errors": errors, "sample_count": len(rows),
         "modalities": modalities, "actual_sample_hz": actual_hz,
         "sample_interval_ms": _stats(intervals), "vision_latency_ms": _stats(vision_latency),
-        "radar_delta_ms": {**_stats(radar_delta), "over_threshold": sum(
-            x > float(thresholds.get("radar_max_delta_ms", 100.0)) for x in radar_delta)},
-        "gps_delta_ms": {**_stats(gps_delta), "over_threshold": sum(
-            x > float(thresholds.get("gps_max_delta_ms", 1000.0)) for x in gps_delta)},
+        "radar_delta_ms": {**_stats([abs(x) for x in radar_delta]), "over_threshold": sum(
+            abs(x) > float(thresholds.get("radar_max_delta_ms", 100.0)) for x in radar_delta)},
+        "gps_delta_ms": {**_stats([abs(x) for x in gps_delta]), "over_threshold": sum(
+            abs(x) > float(thresholds.get("gps_max_delta_ms", 1000.0)) for x in gps_delta)},
         "vision": {"empty_detection_ratio": empty_detections / len(rows) if rows else 0.0,
                    "drivable_area_ratio_min": min(drivable) if drivable else 0.0,
                    "drivable_area_ratio_max": max(drivable) if drivable else 0.0,

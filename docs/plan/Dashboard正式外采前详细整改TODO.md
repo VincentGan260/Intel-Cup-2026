@@ -8,6 +8,7 @@
 
 - [x] 相机改为单一后台采集线程，页面、视觉和Recorder共享最新帧、`camera_frame_id`与采集时间。
 - [x] LD2451每次消费时排空完整帧，仅使用最新雷达帧，避免20 Hz雷达在低频视觉循环中持续积压。
+- [x] 雷达/GPS同步差改用数据实际到达主机的单调时间，不再用`read_once()`调用结束时间冒充样本时间。
 - [x] 超过同步阈值的雷达数据不再参与视觉—雷达关联。
 - [x] 正式`--record`默认等待GPS有效定位；室内测试必须显式使用`--skip-gps-fix`。
 - [x] Recorder关闭前等待状态写线程真正退出，避免关闭文件后的并发写入。
@@ -67,8 +68,10 @@
     "frame_capture_monotonic_ns": 0,
     "radar_read_start_monotonic_ns": 0,
     "radar_read_end_monotonic_ns": 0,
+    "radar_sample_monotonic_ns": 0,
     "gps_read_start_monotonic_ns": 0,
     "gps_read_end_monotonic_ns": 0,
+    "gps_sample_monotonic_ns": 0,
     "vision_start_monotonic_ns": 0,
     "vision_finish_monotonic_ns": 0,
     "record_write_monotonic_ns": 0,

@@ -124,6 +124,7 @@ class GPSReader(BaseSensorReader):
         self._rmc_received_wall: float = 0.0
         self._bad_nmea_count: int = 0
         self._max_sentence_age_sec = float(self.config.get("max_sentence_age_sec", 2.5))
+        self.last_sample_monotonic_ns: int = 0
 
     def start(self) -> None:
         if self.is_real:
@@ -232,6 +233,15 @@ class GPSReader(BaseSensorReader):
             )
             if gga_fresh or rmc_fresh:
                 gps.timestamp = max(self._gga_received_wall, self._rmc_received_wall)
+            # GPSData由GGA位置和RMC速度共同组成。两者均存在时使用较早到达者，
+            # 这样任一组成报文过旧都会体现在与相机的同步差中，不会被较新的另一句掩盖。
+            if gga_fresh and rmc_fresh:
+                self.last_sample_monotonic_ns = int(
+                    min(self._gga_received_mono, self._rmc_received_mono) * 1_000_000_000)
+            elif gga_fresh:
+                self.last_sample_monotonic_ns = int(self._gga_received_mono * 1_000_000_000)
+            elif rmc_fresh:
+                self.last_sample_monotonic_ns = int(self._rmc_received_mono * 1_000_000_000)
 
         except Exception as e:
             print(f"[GPSReader] 读取异常: {e}")

@@ -18,10 +18,16 @@ def build_real_sensor_state(camera_available: bool, radar_reader, gps_reader,
     gps = gps_reader.read_once()
     gps_end_ns = time.monotonic_ns()
     camera_ns = frame_capture_monotonic_ns or radar_start_ns
-    radar_delta_ms = abs(radar_end_ns - camera_ns) / 1_000_000.0
-    gps_delta_ms = abs(gps_end_ns - camera_ns) / 1_000_000.0
-    radar_fresh = radar_delta_ms <= float(sync_thresholds["radar_max_delta_ms"])
-    gps_fresh = gps_delta_ms <= float(sync_thresholds["gps_max_delta_ms"])
+    radar_sample_ns = int(getattr(radar_reader, "last_sample_monotonic_ns", 0) or 0)
+    gps_sample_ns = int(getattr(gps_reader, "last_sample_monotonic_ns", 0) or 0)
+    radar_delta_ms = ((radar_sample_ns - camera_ns) / 1_000_000.0
+                      if radar_sample_ns else None)
+    gps_delta_ms = ((gps_sample_ns - camera_ns) / 1_000_000.0
+                    if gps_sample_ns else None)
+    radar_fresh = (radar_delta_ms is not None and
+                   abs(radar_delta_ms) <= float(sync_thresholds["radar_max_delta_ms"]))
+    gps_fresh = (gps_delta_ms is not None and
+                 abs(gps_delta_ms) <= float(sync_thresholds["gps_max_delta_ms"]))
     vision = None
     fusion = None
     inference_ms = 0.0
@@ -39,8 +45,10 @@ def build_real_sensor_state(camera_available: bool, radar_reader, gps_reader,
         "frame_capture_monotonic_ns": camera_ns,
         "radar_read_start_monotonic_ns": radar_start_ns,
         "radar_read_end_monotonic_ns": radar_end_ns,
+        "radar_sample_monotonic_ns": radar_sample_ns,
         "gps_read_start_monotonic_ns": gps_start_ns,
         "gps_read_end_monotonic_ns": gps_end_ns,
+        "gps_sample_monotonic_ns": gps_sample_ns,
         "vision_start_monotonic_ns": vision_start_ns,
         "vision_finish_monotonic_ns": vision_finish_ns,
         "radar_delta_ms": radar_delta_ms,
