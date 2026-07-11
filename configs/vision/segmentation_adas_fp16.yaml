@@ -16,8 +16,8 @@ model:
   road_class_index: 1
 
 openvino:
-  # 使用 AUTO 模式自动选择最佳设备
-  device: AUTO
+  # 最终部署方案：FP16 @ GPU（不允许 AUTO 静默换后端）
+  device: GPU
   # FP16 推理配置
   inference_precision: FP16
 
