@@ -132,6 +132,7 @@ def dashboard_state_loop(
     radar_reader=None,
     gps_reader=None,
     recorder=None,
+    cloud_sync=None,
     sync_thresholds=None,
     interval: float = 0.2,
     start_time: float = 0.0,
@@ -234,6 +235,8 @@ def dashboard_state_loop(
                 vision_p95_ms=p95,
             )
             state_store.set_state(state)
+            if cloud_sync is not None:
+                cloud_sync.publish_state(state)
         except Exception as e:
             print(f"[StateLoop] 状态更新异常: {e}")
         remaining = interval - (time.monotonic() - loop_start)
@@ -271,6 +274,20 @@ def main() -> None:
     parser.add_argument("--wait-gps", action="store_true",
                         help="显式要求录制前等待GPS定位；GPS失效时不要使用")
     parser.add_argument("--gps-timeout", type=int, default=90)
+    parser.add_argument("--cloud-enable", action="store_true",
+                        help="upload compact ride data and raw minute videos to the cloud")
+    parser.add_argument("--cloud-url", default="http://124.70.108.34",
+                        help="cloud API base URL")
+    parser.add_argument("--device-id", default="bike-001",
+                        help="cloud device identifier")
+    parser.add_argument("--cloud-state-hz", type=float, default=1.0,
+                        help="ride sample upload frequency")
+    parser.add_argument("--cloud-video-fps", type=float, default=10.0,
+                        help="raw cloud video recording frame rate")
+    parser.add_argument("--cloud-video-seconds", type=float, default=60.0,
+                        help="cloud video segment duration")
+    parser.add_argument("--cloud-spool", default="data/cloud_spool",
+                        help="local directory for videos awaiting upload")
     parser.add_argument(
         "--enable-vision", action="store_true",
         help="hybrid 模式下启用视觉推理（需要 openvino 环境）",
@@ -325,6 +342,7 @@ def main() -> None:
     radar_reader = None
     gps_reader = None
     recorder = None
+    cloud_sync = None
 
     if args.dashboard_mode == "real":
         from src.sensors.gps_reader import GPSReader
@@ -487,6 +505,20 @@ def main() -> None:
         print("-" * 55)
 
     # ── 4. 启动后台状态更新线程 ──
+    if args.cloud_enable:
+        from src.dashboard.cloud_sync import CloudSyncClient
+
+        cloud_sync = CloudSyncClient(
+            base_url=args.cloud_url,
+            device_id=args.device_id,
+            camera=camera,
+            spool_dir=_project_root / args.cloud_spool,
+            state_hz=args.cloud_state_hz,
+            video_fps=args.cloud_video_fps,
+            segment_seconds=args.cloud_video_seconds,
+        )
+        cloud_sync.start()
+
     interval = 1.0 / max(args.state_hz, 1)
     stop_event = threading.Event()
     _start_time = time.time()
@@ -507,6 +539,7 @@ def main() -> None:
             "radar_reader": radar_reader,
             "gps_reader": gps_reader,
             "recorder": recorder,
+            "cloud_sync": cloud_sync,
             "sync_thresholds": sync_thresholds,
             "interval": interval,
             "start_time": _start_time,
@@ -558,6 +591,8 @@ def main() -> None:
         # 串口读取和视觉推理都有有界超时；必须等写线程真正退出后再关闭Recorder，
         # 否则可能出现后台线程向已关闭文件写入的竞争。
         state_thread.join()
+        if cloud_sync is not None:
+            cloud_sync.close()
 
         # 释放 VisionAdapter
         if vision_adapter is not None:
