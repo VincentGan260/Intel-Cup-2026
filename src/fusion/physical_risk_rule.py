@@ -1,11 +1,4 @@
-"""Evidence-based, radar-primary warning rule used by the live demo.
-
-No learned weights are used.  A target must be approaching and lie inside a
-physical lateral corridor.  Medium means an approaching in-corridor target is
-present.  High means its TTC no longer exceeds the 2.5 s rider
-perception/brake-reaction allowance plus processing time already consumed by
-the current sample.
-"""
+"""Competition radar TTC urgency rule (no learned weights or braking claims)."""
 from __future__ import annotations
 
 import math
@@ -17,80 +10,173 @@ from typing import Any, Optional
 class PhysicalRiskDecision:
     level: int
     label: str
+    status: str
     reason: str
     min_path_ttc_s: Optional[float]
-    high_boundary_s: float
+    urgent_ttc_s: float
     path_target_count: int
-    corridor_half_width_m: float
+    point_gate_half_width_m: float
+    raw_target_count: int = 0
+    valid_target_count: int = 0
+    invalid_target_count: int = 0
+    critical_distance_m: Optional[float] = None
+    critical_lateral_m: Optional[float] = None
+
+    @property
+    def high_boundary_s(self) -> float:
+        return self.urgent_ttc_s
+
+    @property
+    def corridor_half_width_m(self) -> float:
+        return self.point_gate_half_width_m
 
 
 class PhysicalRiskRule:
+    """Map valid radar targets to low / attention / urgent levels.
+
+    `urgent_ttc_s` is a reaction-time urgency reference. It is explicitly not
+    a stopping-safety threshold and contains no braking-time model.
+    """
+
     def __init__(
         self,
         *,
         body_width_m: float,
-        radar_lateral_error_m: float,
-        mounting_offset_m: float = 0.0,
-        mounting_uncertainty_m: float = 0.06,
-        reaction_time_s: float = 2.5,
-        min_closing_speed_mps: float = 0.05,
+        point_gate_lateral_margin_m: float,
+        mounting_offset_m: float,
+        mounting_uncertainty_m: float,
+        configured_warning_range_m: float,
+        radar_to_motor_p95_s: float,
+        urgent_reference_s: float = 2.5,
+        min_valid_distance_m: float = 0.01,
+        max_valid_distance_m: float = 100.0,
+        max_abs_angle_deg: float = 15.0,
+        min_confidence: float | None = None,
     ) -> None:
-        if body_width_m <= 0:
-            raise ValueError("body_width_m must be positive")
-        if radar_lateral_error_m < 0 or mounting_uncertainty_m < 0:
-            raise ValueError("error/uncertainty values must be non-negative")
+        positive = (body_width_m, configured_warning_range_m, urgent_reference_s)
+        nonnegative = (point_gate_lateral_margin_m, mounting_uncertainty_m,
+                       radar_to_motor_p95_s, min_valid_distance_m)
+        if any(value <= 0 for value in positive):
+            raise ValueError("body width, configured range and urgency reference must be positive")
+        if any(value < 0 for value in nonnegative):
+            raise ValueError("margins, noise, latency and minimum distance must be non-negative")
+        if max_valid_distance_m < configured_warning_range_m:
+            raise ValueError("configured warning range cannot exceed radar valid distance")
+        if max_abs_angle_deg <= 0 or max_abs_angle_deg > 15.0:
+            raise ValueError("LD2451 competition gate must stay within the manual's +/-15 deg FOV")
+
         self.body_width_m = body_width_m
-        self.radar_lateral_error_m = radar_lateral_error_m
+        self.point_gate_lateral_margin_m = point_gate_lateral_margin_m
         self.mounting_offset_m = mounting_offset_m
         self.mounting_uncertainty_m = mounting_uncertainty_m
-        self.reaction_time_s = reaction_time_s
-        self.min_closing_speed_mps = min_closing_speed_mps
+        self.configured_warning_range_m = configured_warning_range_m
+        self.radar_to_motor_p95_s = radar_to_motor_p95_s
+        self.urgent_reference_s = urgent_reference_s
+        self.min_valid_distance_m = min_valid_distance_m
+        self.max_valid_distance_m = max_valid_distance_m
+        self.max_abs_angle_deg = max_abs_angle_deg
+        self.min_confidence = min_confidence
+
+    @property
+    def urgent_ttc_s(self) -> float:
+        return self.urgent_reference_s + self.radar_to_motor_p95_s
+
+    @property
+    def point_gate_half_width_m(self) -> float:
+        return (self.body_width_m / 2.0 + self.point_gate_lateral_margin_m
+                + self.mounting_uncertainty_m)
 
     @property
     def corridor_half_width_m(self) -> float:
-        return (
-            self.body_width_m / 2.0
-            + self.radar_lateral_error_m
-            + self.mounting_uncertainty_m
+        return self.point_gate_half_width_m
+
+    def _make(self, level: int, label: str, status: str, reason: str, *,
+              raw: int = 0, valid: int = 0, invalid: int = 0,
+              candidates: list[tuple[float, float, float]] | None = None) -> PhysicalRiskDecision:
+        candidates = candidates or []
+        critical = min(candidates, key=lambda item: item[0]) if candidates else None
+        return PhysicalRiskDecision(
+            level=level, label=label, status=status, reason=reason,
+            min_path_ttc_s=critical[0] if critical else None,
+            urgent_ttc_s=self.urgent_ttc_s,
+            path_target_count=len(candidates),
+            point_gate_half_width_m=self.point_gate_half_width_m,
+            raw_target_count=raw, valid_target_count=valid,
+            invalid_target_count=invalid,
+            critical_distance_m=critical[1] if critical else None,
+            critical_lateral_m=critical[2] if critical else None,
         )
 
-    def decide(self, radar: Any, processing_elapsed_s: float) -> PhysicalRiskDecision:
-        boundary = self.reaction_time_s + max(0.0, processing_elapsed_s)
+    def decide(self, radar: Any, *, radar_fresh: bool) -> PhysicalRiskDecision:
         if radar is None or not bool(getattr(radar, "valid", False)):
-            return PhysicalRiskDecision(
-                0, "unknown", "radar_invalid", None, boundary, 0,
-                self.corridor_half_width_m,
-            )
+            return self._make(0, "unknown", "unknown", "radar_frame_invalid")
+        if not radar_fresh:
+            return self._make(0, "unknown", "unknown", "radar_frame_stale")
 
-        path_ttcs: list[float] = []
-        for target in getattr(radar, "targets", []):
-            distance = float(getattr(target, "distance_m", -1.0))
-            relative_speed = float(getattr(target, "relative_speed_mps", 0.0))
-            angle_deg = float(getattr(target, "angle_deg", 0.0))
-            closing_speed = -relative_speed  # project convention: negative means approaching
-            if distance <= 0 or closing_speed < self.min_closing_speed_mps:
+        targets = list(getattr(radar, "targets", []) or [])
+        if not targets:
+            return self._make(0, "low", "normal", "radar_reports_no_target")
+
+        valid_count = 0
+        invalid_count = 0
+        candidates: list[tuple[float, float, float]] = []
+        for target in targets:
+            try:
+                distance = float(getattr(target, "distance_m"))
+                relative_speed = float(getattr(target, "relative_speed_mps"))
+                angle_deg = float(getattr(target, "angle_deg"))
+                confidence = float(getattr(target, "confidence", 1.0))
+            except (AttributeError, TypeError, ValueError):
+                invalid_count += 1
                 continue
-            lateral_from_radar = distance * math.sin(math.radians(angle_deg))
-            # mounting_offset_m is the radar origin in the bicycle frame
-            # (right positive); 5.5 cm left is represented as -0.055.
-            lateral_from_bike_axis = self.mounting_offset_m + lateral_from_radar
-            if abs(lateral_from_bike_axis) > self.corridor_half_width_m:
+
+            valid_measurement = (
+                math.isfinite(distance) and math.isfinite(relative_speed)
+                and math.isfinite(angle_deg) and math.isfinite(confidence)
+                and self.min_valid_distance_m <= distance <= self.max_valid_distance_m
+                and abs(angle_deg) <= self.max_abs_angle_deg
+                and (self.min_confidence is None or confidence >= self.min_confidence)
+            )
+            if not valid_measurement:
+                invalid_count += 1
                 continue
-            path_ttcs.append(distance / closing_speed)
+            valid_count += 1
 
-        if not path_ttcs:
-            return PhysicalRiskDecision(
-                0, "low", "no_approaching_path_target", None, boundary, 0,
-                self.corridor_half_width_m,
+            # A valid target outside the configured competition working range
+            # is not abnormal; this software configuration cannot alert on it.
+            if distance > self.configured_warning_range_m:
+                continue
+
+            closing_speed = -relative_speed
+            # Mathematical validity condition for TTC, not an empirical speed
+            # threshold. LD2451's configured minimum detection speed owns the
+            # physical filtering.
+            if not math.isfinite(closing_speed) or closing_speed <= 0.0:
+                continue
+            lateral_m = self.mounting_offset_m + distance * math.sin(math.radians(angle_deg))
+            if abs(lateral_m) > self.point_gate_half_width_m:
+                continue
+            candidates.append((distance / closing_speed, distance, lateral_m))
+
+        if valid_count == 0:
+            return self._make(
+                0, "unknown", "degraded", "all_reported_targets_invalid",
+                raw=len(targets), invalid=invalid_count,
+            )
+        if not candidates:
+            return self._make(
+                0, "low", "normal", "no_approaching_target_in_point_gate",
+                raw=len(targets), valid=valid_count, invalid=invalid_count,
             )
 
-        min_ttc = min(path_ttcs)
-        if min_ttc <= boundary:
-            return PhysicalRiskDecision(
-                2, "high", "ttc_within_reaction_and_processing_time",
-                min_ttc, boundary, len(path_ttcs), self.corridor_half_width_m,
+        if min(item[0] for item in candidates) <= self.urgent_ttc_s:
+            return self._make(
+                2, "high", "urgent", "ttc_entered_reaction_time_urgency_reference",
+                raw=len(targets), valid=valid_count, invalid=invalid_count,
+                candidates=candidates,
             )
-        return PhysicalRiskDecision(
-            1, "mid", "approaching_path_target",
-            min_ttc, boundary, len(path_ttcs), self.corridor_half_width_m,
+        return self._make(
+            1, "mid", "warning", "approaching_target_in_configured_point_gate",
+            raw=len(targets), valid=valid_count, invalid=invalid_count,
+            candidates=candidates,
         )

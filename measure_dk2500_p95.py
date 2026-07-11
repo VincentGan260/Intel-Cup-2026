@@ -39,11 +39,12 @@ def main() -> None:
         "run_risk_motor_demo.py",
         "--profile", "dk2500",
         "--body-width-m", "0.66",
-        "--radar-lateral-error-m", "0.025",
+        "--point-gate-lateral-margin-m", "0.025",
         "--mounting-offset-m", "-0.055",
         "--mounting-uncertainty-m", "0.005",
         "--motor", motor_mode,
         "--latency-log", log_path,
+        "--force-alert-level", "2",
     ]
     if args.loops:
         forwarded.extend(["--loops", str(args.loops)])

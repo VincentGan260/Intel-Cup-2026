@@ -92,7 +92,7 @@ class DashboardRecorder:
 
     def write(self, frame, radar, gps, vision, fusion, inference_ms: float,
               timestamps: dict, *, camera_frame_id: int,
-              radar_valid: bool, gps_valid: bool) -> None:
+              radar_valid: bool, gps_valid: bool, risk_decision=None) -> None:
         wall_ns = time.time_ns()
         frame_path = ""
         frame_valid = frame is not None
@@ -168,6 +168,7 @@ class DashboardRecorder:
                 "segmentation": round(float(getattr(vision, "segmentation_inference_ms", 0.0)), 3),
             },
             "timestamps": timestamps,
+            "risk_decision": _jsonable(risk_decision) if risk_decision is not None else None,
             "label": {"risk_level": self._risk_label, "event_id": None, "note": ""},
         }
         with self._lock:
