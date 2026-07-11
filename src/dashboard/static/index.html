@@ -637,10 +637,10 @@
         <div id="sensors-container"></div>
       </div>
 
-      <!-- IMU Data -->
-      <div class="card" id="imu-card">
-        <div class="card-title">IMU 姿态数据</div>
-        <div id="imu-container"></div>
+      <!-- Real sensor data -->
+      <div class="card" id="sensor-data-card">
+        <div class="card-title">实时传感器数据</div>
+        <div id="sensor-data-container"></div>
       </div>
 
       <!-- Mode -->
@@ -689,8 +689,8 @@
   const MAX_ERRORS = 3;
   let prevRiskLevel = -1;
 
-  const sensorNames = ["camera", "vision", "radar", "imu", "gps"];
-  const sensorLabels = {"camera":"摄像头","vision":"视觉","radar":"雷达","imu":"IMU","gps":"GPS"};
+  const sensorNames = ["camera", "vision", "radar", "gps"];
+  const sensorLabels = {"camera":"摄像头","vision":"视觉","radar":"雷达","gps":"GPS"};
   const riskItemNames = ["obs", "dist", "pose", "speed"];
   const riskItemLabels = {"obs":"视觉风险","dist":"距离风险","pose":"姿态风险","speed":"速度风险"};
 
@@ -718,18 +718,18 @@
     sensorsContainer.appendChild(div);
   });
 
-  const imuFields = ["roll", "pitch", "yaw", "acc_x", "acc_y", "acc_z"];
-  const imuLabels = {"roll":"Roll (滚转角)","pitch":"Pitch (俯仰角)","yaw":"Yaw (航向角)","acc_x":"Acc X","acc_y":"Acc Y","acc_z":"Acc Z"};
-  const imuIds = {};
-  const imuContainer = $("imu-container");
-  imuFields.forEach(k => {
+  const sensorDataFields = ["radar_targets", "radar_nearest", "radar_ttc", "gps_speed", "gps_position", "gps_fix", "gps_satellites"];
+  const sensorDataLabels = {"radar_targets":"雷达目标数","radar_nearest":"最近距离","radar_ttc":"最小 TTC","gps_speed":"GPS 速度","gps_position":"经纬度","gps_fix":"定位质量","gps_satellites":"卫星数"};
+  const sensorDataIds = {};
+  const sensorDataContainer = $("sensor-data-container");
+  sensorDataFields.forEach(k => {
     const div = document.createElement("div");
     div.className = "sensor-row";
     div.innerHTML =
-      '<span class="sensor-label">' + imuLabels[k] + '</span>' +
-      '<span class="sensor-mode imu-val" id="imu-val-' + k + '">--</span>';
-    imuContainer.appendChild(div);
-    imuIds[k + "_val"] = "imu-val-" + k;
+      '<span class="sensor-label">' + sensorDataLabels[k] + '</span>' +
+      '<span class="sensor-mode" id="sensor-data-' + k + '">--</span>';
+    sensorDataContainer.appendChild(div);
+    sensorDataIds[k] = "sensor-data-" + k;
   });
 
   const visionFields = ["valid","object_count","person_count","vehicle_count","max_confidence","drivable_area_ratio","max_visual_risk"];
@@ -852,14 +852,21 @@
         const val=sensors[k],dot=$("sen-dot-"+k),modeEl=$("sen-mode-"+k);
         if(val===true||(typeof val==="boolean"&&val)){dot.className="sensor-indicator on";modeEl.textContent="real";modeEl.style.color="var(--green)";}
         else if(val===false||(typeof val==="boolean"&&!val)){dot.className="sensor-indicator off";modeEl.textContent="off";modeEl.style.color="var(--red)";}
+        else if(val==="real"){dot.className="sensor-indicator on";modeEl.textContent="real";modeEl.style.color="var(--green)";}
+        else if(val==="off"||val==="invalid"){dot.className="sensor-indicator off";modeEl.textContent=String(val);modeEl.style.color="var(--red)";}
         else{dot.className="sensor-indicator mock";modeEl.textContent=String(val);modeEl.style.color="var(--yellow)";}
       });
 
       $("mode-text").textContent = s.mode || "mock";
 
-      const imuData=s.imu_data||{};
-      imuFields.forEach(k=>{const el=$(imuIds[k+"_val"]);if(!el)return;const v=imuData[k];if(typeof v==="number"){el.textContent=k.startsWith("acc")?v.toFixed(2)+" m/s²":v.toFixed(2)+"°";}else{el.textContent="--";}});
-      if(!imuData.valid){$("imu-card").querySelector(".card-title").textContent="IMU 姿态数据 (无数据)";}else{$("imu-card").querySelector(".card-title").textContent="IMU 姿态数据";}
+      const rd=s.radar_data||{}, gd=s.gps_data||{};
+      $(sensorDataIds.radar_targets).textContent=rd.target_count!=null?String(rd.target_count):"--";
+      $(sensorDataIds.radar_nearest).textContent=rd.nearest_distance_m>=0?rd.nearest_distance_m.toFixed(1)+" m":"无目标";
+      $(sensorDataIds.radar_ttc).textContent=rd.min_ttc_s>0?rd.min_ttc_s.toFixed(1)+" s":"--";
+      $(sensorDataIds.gps_speed).textContent=typeof gd.speed_kmh==="number"?gd.speed_kmh.toFixed(1)+" km/h":"--";
+      $(sensorDataIds.gps_position).textContent=gd.valid?gd.latitude.toFixed(6)+", "+gd.longitude.toFixed(6):"未定位";
+      $(sensorDataIds.gps_fix).textContent=gd.fix_quality!=null?String(gd.fix_quality):"--";
+      $(sensorDataIds.gps_satellites).textContent=gd.satellites!=null?String(gd.satellites):"--";
 
       const vd=s.vision_details||{};
       visionFields.forEach(k=>{

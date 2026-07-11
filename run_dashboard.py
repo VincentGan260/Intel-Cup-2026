@@ -120,6 +120,8 @@ def dashboard_state_loop(
     enable_vision: bool = False,
     imu_reader=None,
     enable_imu: bool = False,
+    radar_reader=None,
+    gps_reader=None,
     interval: float = 0.2,
     start_time: float = 0.0,
     state_hz: int = 5,
@@ -145,6 +147,8 @@ def dashboard_state_loop(
 
     if mode == "hybrid":
         from src.dashboard.hybrid_state import build_hybrid_state
+    elif mode == "real":
+        from src.dashboard.real_sensor_state import build_real_sensor_state
 
     print(f"[StateLoop] 后台状态更新线程已启动 (mode={mode}, interval={interval:.2f}s)")
     while not stop_event.is_set():
@@ -168,6 +172,12 @@ def dashboard_state_loop(
                 # 将最新 VisionResult 写入缓存（视频流每帧读取绘制，不重复推理）
                 if bgr_frame is not None:
                     _cue_vision_result_cache(vision_adapter)
+            elif mode == "real":
+                state = build_real_sensor_state(
+                    camera_available=camera_producer.is_available,
+                    radar_reader=radar_reader,
+                    gps_reader=gps_reader,
+                )
             else:
                 state = build_mock_state(camera_available=camera_producer.is_available)
 
@@ -197,8 +207,12 @@ def main() -> None:
     parser.add_argument("--camera-id", type=int, default=0, help="摄像头设备编号")
     parser.add_argument("--reload", action="store_true", help="开启 uvicorn 热重载（开发模式）")
     parser.add_argument(
-        "--dashboard-mode", type=str, default="mock", choices=["mock", "hybrid"],
+        "--dashboard-mode", type=str, default="real", choices=["real", "mock", "hybrid"],
         help="Dashboard 运行模式: mock（纯模拟）/ hybrid（真实 RiskModel + mock 传感器）",
+    )
+    parser.add_argument(
+        "--profile", type=str, default="dk2500", choices=["windows", "dk2500"],
+        help="sensor_ports.yaml profile used in real mode",
     )
     parser.add_argument(
         "--enable-vision", action="store_true",
@@ -244,6 +258,24 @@ def main() -> None:
     vision_adapter = None
     imu_reader = None
     vision_init_ok = False
+    imu_init_ok = False
+    radar_reader = None
+    gps_reader = None
+
+    if args.dashboard_mode == "real":
+        import yaml
+        from src.sensors.gps_reader import GPSReader
+        from src.sensors.radar_reader import RadarReader
+
+        ports_cfg = yaml.safe_load(
+            (_project_root / "configs" / "sensor_ports.yaml").read_text(encoding="utf-8")
+        )
+        profile_cfg = ports_cfg[args.profile]
+        radar_reader = RadarReader(mode="real", config=profile_cfg["radar"])
+        gps_reader = GPSReader(mode="real", config=profile_cfg["gps"])
+        radar_reader.start()
+        gps_reader.start()
+        print(f"[RealSensors] profile={args.profile}; IMU and models disabled")
 
     if args.dashboard_mode == "hybrid":
         print("-" * 55)
@@ -359,6 +391,8 @@ def main() -> None:
             "enable_vision": args.enable_vision and vision_init_ok,
             "imu_reader": imu_reader,
             "enable_imu": args.enable_imu and imu_init_ok,
+            "radar_reader": radar_reader,
+            "gps_reader": gps_reader,
             "interval": interval,
             "start_time": _start_time,
             "state_hz": args.state_hz,
@@ -387,6 +421,9 @@ def main() -> None:
         print(f"  RiskModel: 真实计算")
         print(f"  GPS/IMU/Radar: {'IMU=real, ' if (args.enable_imu and imu_init_ok) else ''}其余 mock（不打开串口）")
         print(f"  Vision: {'已启用' if (args.enable_vision and vision_init_ok) else '关闭'}")
+    elif args.dashboard_mode == "real":
+        print(f"  GPS/Radar: real ({args.profile})")
+        print("  IMU/Vision/Risk model: disabled")
     print("=" * 55)
 
     try:
@@ -417,6 +454,11 @@ def main() -> None:
                 imu_reader.stop()
             except Exception as e:
                 print(f"[清理] IMUReader.stop() 异常: {e}")
+
+        if radar_reader is not None:
+            radar_reader.stop()
+        if gps_reader is not None:
+            gps_reader.stop()
 
         camera.release()
 
