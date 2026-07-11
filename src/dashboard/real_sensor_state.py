@@ -19,7 +19,7 @@ def build_real_sensor_state(camera_available: bool, radar_reader, gps_reader,
         inference_ms = (time.perf_counter() - started) * 1000.0
         raw_result = vision_adapter.get_latest_vision_result()
         if raw_result is not None and fusion_engine is not None:
-            fusion = fusion_engine.fuse_vision_result(raw_result, radar, frame.shape[1], frame.shape[0])
+            fusion = fusion_engine.fuse_vision_result(raw_result, radar)
     if recorder is not None:
         recorder.write(frame, radar, gps, vision, fusion, inference_ms)
 
