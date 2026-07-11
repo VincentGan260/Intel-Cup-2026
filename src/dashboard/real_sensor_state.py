@@ -30,6 +30,8 @@ def build_real_sensor_state(
     recorder=None,
     sync_thresholds=None,
     risk_rule=None,
+    risk_model=None,
+    classifier=None,
     motor=None,
     target_stale_ms: float = 500.0,
     radar_communication_watchdog_ms: float = 2000.0,
@@ -123,11 +125,34 @@ def build_real_sensor_state(
     radar_connected = getattr(radar_reader, "_serial", None) is not None
     gps_connected = getattr(gps_reader, "_serial", None) is not None
     vision_valid = bool(vision is not None and vision.valid)
-    level = int(decision.level) if decision is not None else 0
-    status = decision.status if decision is not None else "disabled"
-    label = decision.label if decision is not None else "disabled"
-    reason = decision.reason if decision is not None else "risk_rule_disabled"
-    display_index = level / 2.0 if status not in {"unknown", "degraded"} else 0.0
+    fused_items = None
+    fused_weights = {}
+    if risk_model is not None and classifier is not None:
+        from copy import copy
+        from src.fusion.data_types import FusionInput, IMUData, VisionData
+
+        risk_radar = copy(radar)
+        risk_radar.valid = bool(radar.valid) and radar_fresh
+        risk_gps = copy(gps)
+        risk_gps.valid = bool(gps.valid) and gps_fresh
+        risk_vision = vision if vision is not None else VisionData(timestamp=time.time(), valid=False)
+        risk_input = FusionInput(
+            timestamp=time.time(), gps=risk_gps, imu=IMUData(timestamp=time.time(), valid=False),
+            radar=risk_radar, vision=risk_vision, vision_enabled=vision_adapter is not None,
+        )
+        fused_items, fused_weights = risk_model.compute(risk_input)
+        fused_score = max(0.0, min(1.0, float(fused_items["risk_score"])))
+        level, label = classifier.classify(fused_score)
+        status = "active" if any((risk_radar.valid, risk_gps.valid, vision_valid)) else "degraded"
+    else:
+        fused_score = None
+        level = int(decision.level) if decision is not None else 0
+        label = decision.label if decision is not None else "disabled"
+        status = decision.status if decision is not None else "disabled"
+    reason = (decision.reason if decision is not None else
+              ("adaptive_fusion" if fused_score is not None else "risk_rule_disabled"))
+    display_index = (fused_score if fused_score is not None else
+                     (level / 2.0 if status not in {"unknown", "degraded"} else 0.0))
 
     risk_rule_state = {
         "status": status,
@@ -146,16 +171,20 @@ def build_real_sensor_state(
     return {
         "timestamp": time.time(),
         "risk_score": display_index,
-        "risk_score_semantics": "ordinal_display_index_not_probability",
+        "risk_score_semantics": ("adaptive_weighted_fusion" if fused_score is not None
+                                 else "ordinal_display_index_not_probability"),
         "risk_level": level,
         "risk_label": label,
         "risk_status": status,
         "risk_reason": reason,
         "risk_rule": risk_rule_state,
-        "risk_items": {"obs": 0.0, "dist": 0.0, "pose": 0.0, "speed": 0.0,
+        "risk_items": {"obs": float(fused_items["R_obs"]) if fused_items else 0.0,
+                       "dist": float(fused_items["R_dist"]) if fused_items else 0.0,
+                       "pose": float(fused_items["R_pose"]) if fused_items else 0.0,
+                       "speed": float(fused_items["R_speed"]) if fused_items else 0.0,
                        "ttc_s": risk_rule_state["critical_ttc_s"],
                        "urgent_ttc_s": risk_rule_state["urgent_ttc_s"]},
-        "weights": {},
+        "weights": fused_weights,
         "sensors": {
             "camera": bool(camera_available),
             "vision": "real" if vision_valid else "off",
@@ -163,7 +192,7 @@ def build_real_sensor_state(
             "gps": "real" if gps_connected else "off",
         },
         "mode": "real-recording" if recorder is not None else "real-sensors",
-        "message": "Radar TTC urgency rule active; vision is asynchronous auxiliary evidence",
+        "message": "Adaptive vision/radar/GPS risk fusion active; IMU disabled",
         "radar_data": {
             "connected": radar_connected,
             "valid": bool(radar.valid) and radar_fresh,

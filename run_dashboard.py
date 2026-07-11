@@ -207,6 +207,8 @@ def dashboard_state_loop(
                     recorder=recorder,
                     sync_thresholds=sync_thresholds,
                     risk_rule=risk_rule,
+                    risk_model=risk_model,
+                    classifier=classifier,
                     motor=motor,
                     target_stale_ms=target_stale_ms,
                     radar_communication_watchdog_ms=radar_communication_watchdog_ms,
@@ -399,6 +401,12 @@ def main() -> None:
         radar_reader.start()
         gps_reader.start()
         print(f"[RealSensors] profile={args.profile}; IMU and models disabled")
+
+        from src.fusion.risk_model import RiskModel
+        from src.fusion.risk_level import RiskLevelClassifier
+        risk_model = RiskModel(config_path=args.risk_config)
+        classifier = RiskLevelClassifier(config_path=args.risk_config)
+        print("[RealSensors] adaptive RiskModel enabled (IMU invalid and automatically down-weighted)")
 
         if args.enable_risk_rule:
             from src.fusion.physical_risk_rule import PhysicalRiskRule

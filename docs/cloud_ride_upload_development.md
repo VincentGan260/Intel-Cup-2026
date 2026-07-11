@@ -179,7 +179,7 @@ payload = {
 
 默认参数：
 
-- 帧率：10 FPS
+- 帧率：3 FPS（DK2500 实测可持续编码配置）
 - 分段长度：60 秒
 - 容器格式：MP4
 - 编码器尝试顺序：`avc1` → `H264` → `mp4v`
@@ -324,7 +324,7 @@ DK2500 的 systemd 模板位于：
 deploy/edge/rider-dashboard.service
 ```
 
-模板使用真实传感器模式、视觉推理、1 Hz 状态上传、10 FPS 视频和 60 秒分段。需在最终硬件验证通过后安装。
+模板使用真实传感器模式、视觉推理、1 Hz 状态上传、3 FPS 视频和 60 秒分段。需在最终硬件验证通过后安装。
 
 ## 13. 边缘端启动参数
 
@@ -344,7 +344,7 @@ python run_dashboard.py \
   --cloud-url http://124.70.108.34 \
   --device-id bike-001 \
   --cloud-state-hz 1 \
-  --cloud-video-fps 10 \
+  --cloud-video-fps 3 \
   --cloud-video-seconds 60 \
   --cloud-spool data/cloud_spool
 ```
