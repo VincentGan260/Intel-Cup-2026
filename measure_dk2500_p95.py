@@ -1,4 +1,4 @@
-"""One-command FP90 sensor-to-vibration P95 measurement.
+"""One-command DK-2500 sensor-to-vibration P95 measurement.
 
 Fixed measured geometry:
   body width: 0.66 m
@@ -14,7 +14,7 @@ from datetime import datetime
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Measure FP90 camera-to-DRV2605 P95")
+    parser = argparse.ArgumentParser(description="Measure DK-2500 camera-to-DRV2605 P95")
     parser.add_argument("--confirm-motor-real", action="store_true",
                         help="required before the real vibration motor is driven")
     parser.add_argument("--mock", action="store_true",
@@ -33,7 +33,7 @@ def main() -> None:
         )
 
     log_path = args.log or (
-        "logs/fp90_e2e_latency_" + datetime.now().strftime("%Y%m%d_%H%M%S") + ".jsonl"
+        "logs/dk2500_e2e_latency_" + datetime.now().strftime("%Y%m%d_%H%M%S") + ".jsonl"
     )
     forwarded = [
         "run_risk_motor_demo.py",

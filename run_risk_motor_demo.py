@@ -1,4 +1,4 @@
-"""FP90 live chain: camera/radar -> vision -> physical rule -> DRV2605.
+"""DK-2500 live chain: camera/radar -> vision -> physical rule -> DRV2605.
 
 The latency metric starts at the timestamp of the camera frame consumed by
 inference and ends immediately after the DRV2605 GO register is written.  It
@@ -26,7 +26,7 @@ ROOT = Path(__file__).resolve().parent
 
 
 def parse_args() -> argparse.Namespace:
-    p = argparse.ArgumentParser(description="FP90 risk-to-vibration demo and P95 logger")
+    p = argparse.ArgumentParser(description="DK-2500 risk-to-vibration demo and P95 logger")
     p.add_argument("--profile", default="dk2500", choices=["dk2500", "windows"])
     p.add_argument("--camera-id", type=int, default=0)
     p.add_argument("--vision-config", default="configs/vision/vision_pipeline.yaml")
@@ -40,7 +40,7 @@ def parse_args() -> argparse.Namespace:
                    help="signed radar offset from bicycle axis; right is positive")
     p.add_argument("--mounting-uncertainty-m", type=float, default=0.06,
                    help="uncertainty when the observed offset is about 5-6 cm")
-    p.add_argument("--latency-log", default="logs/fp90_e2e_latency.jsonl")
+    p.add_argument("--latency-log", default="logs/dk2500_e2e_latency.jsonl")
     p.add_argument("--loops", type=int, default=0, help="0 means run until Ctrl+C")
     return p.parse_args()
 
@@ -89,11 +89,11 @@ def main() -> None:
                 time.sleep(0.05)
                 continue
             radar_data = radar.read_once()
-            vision_data = vision.process(frame)
-            raw_vision = vision.get_latest_vision_result()
-            fused = fuser.fuse_vision_result(raw_vision, radar_data) if raw_vision else None
 
-            elapsed_s = (time.monotonic_ns() - capture_ns) / 1_000_000_000.0
+            # Safety fast path: decide and dispatch before the 135 ms vision
+            # pipeline. Vision is auxiliary and must never delay radar alerts.
+            radar_decision_start_ns = time.monotonic_ns()
+            elapsed_s = (radar_decision_start_ns - capture_ns) / 1_000_000_000.0
             decision = rule.decide(radar_data, elapsed_s)
             if decision.level == 0:
                 motor.alert_low()
@@ -110,6 +110,12 @@ def main() -> None:
                     risk_level=decision.level,
                     frame_id=frame_id,
                 )
+
+            # Auxiliary asynchronous-equivalent stage. This remains in the
+            # demo loop for display, but it runs only after motor dispatch.
+            vision_data = vision.process(frame)
+            raw_vision = vision.get_latest_vision_result()
+            fused = fuser.fuse_vision_result(raw_vision, radar_data) if raw_vision else None
             count += 1
             print(json.dumps({
                 "frame": frame_id,
