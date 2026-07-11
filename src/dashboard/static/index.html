@@ -832,16 +832,22 @@
       const pct = (s.risk_score*100).toFixed(1)+"%";
 
       const badge=$("risk-badge"),bar=$("risk-bar");
-      if (s.risk_level !== prevRiskLevel) {
+      const riskStatus=s.risk_status||"normal";
+      const riskStateKey=riskStatus+":"+String(s.risk_level);
+      if (riskStateKey !== prevRiskLevel) {
         scoreEl.classList.remove("pulse"); void scoreEl.offsetWidth; scoreEl.classList.add("pulse");
         badge.style.transform="scale(0.85)"; badge.style.opacity="0";
         setTimeout(function(){
-          if(s.risk_level===0){badge.textContent="低风险";badge.className="risk-level-badge low";bar.style.background="var(--green)";}
+          if(riskStatus==="unknown"||riskStatus==="degraded"){
+            badge.textContent=riskStatus==="degraded"?"感知降级":"风险不可判定";
+            badge.className="risk-level-badge low";bar.style.background="#64748b";
+          }
+          else if(s.risk_level===0){badge.textContent="低风险";badge.className="risk-level-badge low";bar.style.background="var(--green)";}
           else if(s.risk_level===1){badge.textContent="中风险";badge.className="risk-level-badge med";bar.style.background="var(--orange)";}
           else{badge.textContent="高风险";badge.className="risk-level-badge high";bar.style.background="var(--red)";}
           badge.style.transform="scale(1)";badge.style.opacity="1";
         },150);
-        prevRiskLevel = s.risk_level;
+        prevRiskLevel = riskStateKey;
       }
       bar.style.width = pct;
 

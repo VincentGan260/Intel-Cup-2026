@@ -130,6 +130,7 @@ class RadarReader(BaseSensorReader):
         self._serial: Optional["serial.Serial"] = None  # noqa: F821
         self._buffer = bytearray()
         self.last_sample_monotonic_ns: int = 0
+        self._last_valid_data: Optional[RadarData] = None
         self.approaching_direction_code = int(self.config.get("approaching_direction_code", 1))
         if self.approaching_direction_code not in (0, 1):
             raise ValueError("radar approaching_direction_code must be 0 or 1")
@@ -148,6 +149,8 @@ class RadarReader(BaseSensorReader):
             try:
                 self._serial = _serial.Serial(port, baudrate, timeout=timeout)
                 self._buffer = bytearray()
+                self._last_valid_data = None
+                self.last_sample_monotonic_ns = 0
                 print(f"[RadarReader] 已打开串口 {port} @ {baudrate}")
             except Exception as e:
                 print(f"[RadarReader] 串口打开失败: {e}")
@@ -171,6 +174,14 @@ class RadarReader(BaseSensorReader):
         if self.is_real:
             if self._serial is not None:
                 result = self._read_real(ts)
+                if result.valid:
+                    self._last_valid_data = result
+                elif self._serial.is_open and self._last_valid_data is not None:
+                    # The module reports targets about every 100 ms but an
+                    # explicit no-target state only about every 1 s. Reuse the
+                    # last valid frame; consumers decide staleness from
+                    # last_sample_monotonic_ns.
+                    result = self._last_valid_data
             else:
                 # real 模式但串口不可用（打开失败），返回异常状态
                 result = RadarData(timestamp=ts, valid=False)
@@ -191,8 +202,6 @@ class RadarReader(BaseSensorReader):
             if self._serial.in_waiting > 0:
                 chunk = self._serial.read(self._serial.in_waiting)
                 self._buffer.extend(chunk)
-                # LD2451无硬件时间戳；以本批串口字节到达主机并读完的时刻作为保守到达时间。
-                self.last_sample_monotonic_ns = time.monotonic_ns()
 
             if len(self._buffer) > 4096:
                 self._buffer = self._buffer[-2048:]
@@ -201,6 +210,9 @@ class RadarReader(BaseSensorReader):
             # 否则每轮只取最老一帧会让雷达时间越来越落后于相机。
             result = self._extract_latest_frame()
             if result is not None:
+                # LD2451 has no hardware timestamp. Only a successfully parsed
+                # complete frame may refresh the host receive timestamp.
+                self.last_sample_monotonic_ns = time.monotonic_ns()
                 targets = []
                 nearest = -1.0
                 min_ttc = -1.0

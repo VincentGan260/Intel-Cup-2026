@@ -134,6 +134,10 @@ def dashboard_state_loop(
     recorder=None,
     cloud_sync=None,
     sync_thresholds=None,
+    risk_rule=None,
+    motor=None,
+    target_stale_ms: float = 500.0,
+    radar_communication_watchdog_ms: float = 2000.0,
     interval: float = 0.2,
     start_time: float = 0.0,
     state_hz: int = 5,
@@ -202,6 +206,10 @@ def dashboard_state_loop(
                     fusion_engine=synchronizer,
                     recorder=recorder,
                     sync_thresholds=sync_thresholds,
+                    risk_rule=risk_rule,
+                    motor=motor,
+                    target_stale_ms=target_stale_ms,
+                    radar_communication_watchdog_ms=radar_communication_watchdog_ms,
                 )
                 if vision_adapter is not None:
                     _cue_vision_result_cache(vision_adapter)
@@ -308,7 +316,40 @@ def main() -> None:
         "--state-hz", type=int, default=5,
         help="状态更新频率（Hz），默认 5",
     )
+    parser.add_argument("--enable-risk-rule", action="store_true",
+                        help="real模式启用比赛版雷达TTC紧迫性规则")
+    parser.add_argument("--motor-mode", choices=["off", "mock", "real"], default="off",
+                        help="比赛版风险规则的马达输出模式")
+    parser.add_argument("--confirm-motor-real", action="store_true",
+                        help="确认真实驱动DRV2605；--motor-mode real时必须提供")
+    parser.add_argument("--configured-warning-range-m", type=float, default=None,
+                        help="与LD2451 APP最远检测距离一致的比赛工作范围")
+    parser.add_argument("--radar-to-motor-p95-ms", type=float, default=None,
+                        help="DK-2500实测雷达到DRV2605 GO的P95延迟")
+    parser.add_argument("--target-stale-ms", type=float, default=500.0,
+                        help="有目标100ms周期的5倍工程容错值")
+    parser.add_argument("--radar-communication-watchdog-ms", type=float, default=2000.0,
+                        help="无目标约1s周期的2倍工程通信看门狗")
     args = parser.parse_args()
+
+    if args.enable_risk_rule:
+        required_values = {
+            "--configured-warning-range-m": args.configured_warning_range_m,
+            "--radar-to-motor-p95-ms": args.radar_to_motor_p95_ms,
+        }
+        missing = [name for name, value in required_values.items() if value is None]
+        if missing:
+            parser.error("--enable-risk-rule requires configuration values: " + ", ".join(missing))
+        if args.configured_warning_range_m <= 0:
+            parser.error("--configured-warning-range-m must be positive")
+        if args.radar_to_motor_p95_ms < 0:
+            parser.error("radar-to-motor P95 must be non-negative")
+        if args.target_stale_ms <= 0 or args.radar_communication_watchdog_ms <= 0:
+            parser.error("radar watchdog values must be positive")
+    if args.motor_mode == "real" and not args.confirm_motor_real:
+        parser.error("--motor-mode real requires --confirm-motor-real")
+    if args.motor_mode != "off" and not args.enable_risk_rule:
+        parser.error("--motor-mode requires --enable-risk-rule")
 
     import yaml
     recording_cfg = yaml.safe_load(
@@ -343,6 +384,8 @@ def main() -> None:
     gps_reader = None
     recorder = None
     cloud_sync = None
+    competition_risk_rule = None
+    motor_controller = None
 
     if args.dashboard_mode == "real":
         from src.sensors.gps_reader import GPSReader
@@ -357,6 +400,36 @@ def main() -> None:
         radar_reader.start()
         gps_reader.start()
         print(f"[RealSensors] profile={args.profile}; IMU and models disabled")
+
+        if args.enable_risk_rule:
+            from src.fusion.physical_risk_rule import PhysicalRiskRule
+
+            competition_risk_rule = PhysicalRiskRule(
+                body_width_m=0.66,
+                point_gate_lateral_margin_m=0.025,
+                mounting_offset_m=-0.055,
+                mounting_uncertainty_m=0.005,
+                configured_warning_range_m=args.configured_warning_range_m,
+                radar_to_motor_p95_s=args.radar_to_motor_p95_ms / 1000.0,
+                urgent_reference_s=2.5,
+                max_abs_angle_deg=15.0,
+            )
+            print("[CompetitionRisk] radar TTC urgency rule enabled")
+            print(f"[CompetitionRisk] configured_range={args.configured_warning_range_m:.2f}m, "
+                  f"urgent_ttc={competition_risk_rule.urgent_ttc_s:.3f}s")
+
+            if args.motor_mode != "off":
+                from src.actuator.timed_motor_controller import TimedMotorController
+
+                motor_cfg = profile_cfg["motor"]
+                motor_addr = motor_cfg.get("driver_address", "0x5A")
+                motor_addr = int(motor_addr, 0) if isinstance(motor_addr, str) else int(motor_addr)
+                motor_controller = TimedMotorController(
+                    mode=args.motor_mode,
+                    i2c_bus=int(motor_cfg["i2c_bus"]),
+                    i2c_addr=motor_addr,
+                )
+                motor_controller.start()
 
         if args.enable_vision:
             from src.fusion.vision_adapter import VisionAdapter
@@ -541,6 +614,10 @@ def main() -> None:
             "recorder": recorder,
             "cloud_sync": cloud_sync,
             "sync_thresholds": sync_thresholds,
+            "risk_rule": competition_risk_rule,
+            "motor": motor_controller,
+            "target_stale_ms": args.target_stale_ms,
+            "radar_communication_watchdog_ms": args.radar_communication_watchdog_ms,
             "interval": interval,
             "start_time": _start_time,
             "state_hz": args.state_hz,
@@ -573,7 +650,9 @@ def main() -> None:
         print(f"  GPS/Radar: real ({args.profile})")
         print(f"  Vision: {'enabled' if vision_init_ok else 'disabled'}")
         print(f"  Recording: {recorder.session_dir if recorder else 'disabled'}")
-        print("  IMU/Risk model: disabled")
+        print(f"  Competition risk rule: {'enabled' if competition_risk_rule else 'disabled'}")
+        print(f"  Motor: {args.motor_mode if motor_controller else 'off'}")
+        print("  IMU: disabled")
     print("=" * 55)
 
     try:
@@ -613,6 +692,8 @@ def main() -> None:
             radar_reader.stop()
         if gps_reader is not None:
             gps_reader.stop()
+        if motor_controller is not None:
+            motor_controller.stop()
         if recorder is not None:
             recorder.close()
             result = subprocess.run(
