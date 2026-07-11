@@ -1,0 +1,18 @@
+[Unit]
+Description=Rider Dashboard and Cloud Uploader
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=simple
+User=intelcup
+WorkingDirectory=/home/intelcup/Intel-Cup-2026
+Environment=PYTHONUNBUFFERED=1
+ExecStart=/home/intelcup/miniconda3/envs/intel/bin/python /home/intelcup/Intel-Cup-2026/run_dashboard.py --host 0.0.0.0 --port 8000 --dashboard-mode real --profile dk2500 --camera-id 0 --enable-vision --cloud-enable --cloud-url http://124.70.108.34 --device-id bike-001 --cloud-state-hz 1 --cloud-video-fps 10 --cloud-video-seconds 60 --cloud-spool data/cloud_spool
+Restart=on-failure
+RestartSec=5
+KillSignal=SIGINT
+TimeoutStopSec=90
+
+[Install]
+WantedBy=multi-user.target
