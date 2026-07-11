@@ -51,7 +51,7 @@ dk2500:
 
 # 摄像头配置（与端口无关，放在这里统一管理）
 camera:
-  device_id: 1         # DK2500外接Logitech C910；仍需连续录制验证V4L2稳定性
+  device_id: 0         # DK2500外接Logitech C910主视频节点；video1为附属节点，实测无法稳定采集
   width: 640
   height: 480
   fps: 30
