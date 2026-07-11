@@ -106,7 +106,7 @@ class IMUReader(BaseSensorReader):
         if self.is_real:
             import serial as _serial
 
-            port = self.config.get("port", "/dev/ttyUSB0")
+            port = self.config.get("port", "/dev/ttyIMUWT61C")
             baudrate = self.config.get("baudrate", 115200)
             timeout = self.config.get("timeout", 0.1)
 

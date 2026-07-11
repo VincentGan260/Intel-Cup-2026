@@ -31,7 +31,7 @@ from src.sensors.radar_replay import radar_to_dict
 
 def main() -> None:
     ap = argparse.ArgumentParser(description="LD2451 雷达录制器（存 jsonl）")
-    ap.add_argument("--port", default="COM5", help="串口号（Win:COM5 / Linux:/dev/ttyUSB0）")
+    ap.add_argument("--port", default="/dev/ttyUSB1", help="串口号（Win:COM5 / Linux:/dev/ttyUSB1）")
     ap.add_argument("--baud", type=int, default=256000,
                     help="当前实测LD2451为256000；恢复出厂后可能为115200")
     ap.add_argument("--duration", type=float, default=0.0, help="录制秒数（>0 时按时长）")

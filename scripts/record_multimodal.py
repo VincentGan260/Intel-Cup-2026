@@ -264,20 +264,35 @@ def main() -> int:
                for name in ("frames", "radar", "imu", "gps")}
     stop = threading.Event()
     counts = {"camera": 0, "radar": 0, "imu": 0, "gps": 0}
-    readers = {
-        "radar": RadarReader(args.mode, ports.get("radar", {})),
-        "imu": IMUReader(args.mode, ports.get("imu", {})),
-        "gps": GPSReader(args.mode, ports.get("gps", {})),
-    }
+    
+    readers = {}
+    if args.mode == "real":
+        import os
+        imu_port = ports.get("imu", {}).get("port", "")
+        if os.path.exists(imu_port):
+            readers["imu"] = IMUReader(args.mode, ports.get("imu", {}))
+        else:
+            print(f"[WARN] IMU port {imu_port} not found, skipping IMU recording")
+            readers["imu"] = IMUReader("mock", {})
+        readers["radar"] = RadarReader(args.mode, ports.get("radar", {}))
+        readers["gps"] = GPSReader(args.mode, ports.get("gps", {}))
+    else:
+        readers = {
+            "radar": RadarReader(args.mode, ports.get("radar", {})),
+            "imu": IMUReader(args.mode, ports.get("imu", {})),
+            "gps": GPSReader(args.mode, ports.get("gps", {})),
+        }
+    
     threads = [
         threading.Thread(target=_sensor_worker,
                          args=(name, reader, writers[name], started_mono_ns, stop,
                                args.sensor_hz, counts), daemon=True, name=f"rec-{name}")
         for name, reader in readers.items()
     ]
+    camera_id = args.camera_id if args.camera_id is not None else int(camera_cfg.get("device_id", 0))
     threads.append(threading.Thread(
         target=_camera_worker,
-        args=(args.mode, args.camera_id if args.camera_id is not None else int(camera_cfg.get("device_id", 0)),
+        args=(args.mode, camera_id,
               int(camera_cfg.get("width", 640)), int(camera_cfg.get("height", 480)),
               args.camera_fps or float(camera_cfg.get("fps", 30)), frames_dir, writers["frames"],
               started_mono_ns, stop, counts), daemon=True, name="rec-camera"))

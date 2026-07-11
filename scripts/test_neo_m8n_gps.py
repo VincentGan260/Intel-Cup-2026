@@ -116,7 +116,7 @@ def scan_bauds(port: str) -> int:
 
 def main() -> int:
     ap = argparse.ArgumentParser(description="Read-only NEO-M8N NMEA tester/recorder")
-    ap.add_argument("--port", default="COM5")
+    ap.add_argument("--port", default="/dev/ttyUSB0")
     ap.add_argument("--baud", type=int, default=9600)
     ap.add_argument("--duration", type=float, default=30.0)
     ap.add_argument("--out", type=Path, default=Path("logs/neo_m8n_test.jsonl"))

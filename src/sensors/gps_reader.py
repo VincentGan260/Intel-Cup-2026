@@ -129,7 +129,7 @@ class GPSReader(BaseSensorReader):
         if self.is_real:
             import serial as _serial
 
-            port = self.config.get("port", "/dev/ttyS5")
+            port = self.config.get("port", "/dev/ttyGPSNEO")
             baudrate = self.config.get("baudrate", 9600)
             timeout = self.config.get("timeout", 1.0)
 

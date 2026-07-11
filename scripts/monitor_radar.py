@@ -28,7 +28,7 @@ from src.sensors.radar_reader import RadarReader
 
 def main() -> None:
     ap = argparse.ArgumentParser(description="LD2451 实时监视（桌面 bring-up）")
-    ap.add_argument("--port", default="COM5", help="串口号（Win:COM5 / Linux:/dev/ttyUSB0）")
+    ap.add_argument("--port", default="/dev/ttyUSB1", help="串口号（Win:COM5 / Linux:/dev/ttyUSB1）")
     ap.add_argument("--baud", type=int, default=256000,
                     help="当前实测LD2451为256000；恢复出厂后可能为115200")
     ap.add_argument("--hz", type=float, default=10.0)

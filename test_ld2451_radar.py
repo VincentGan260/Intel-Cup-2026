@@ -512,7 +512,7 @@ def optimize_for_detection(ser: serial.Serial):
     time.sleep(0.2)
 
 
-def run_all_tests(port="COM5", baudrate=256000):
+def run_all_tests(port="/dev/ttyUSB1", baudrate=256000):
     """运行所有雷达测试"""
     print(f"\n{'='*60}")
     print(f"  HLK-LD2451 雷达模块测试")
@@ -562,7 +562,7 @@ def run_all_tests(port="COM5", baudrate=256000):
             print(f"\n  串口已关闭")
 
 
-def quick_data_view(port="COM5", baudrate=256000):
+def quick_data_view(port="/dev/ttyUSB1", baudrate=256000):
     """快速模式：只查看实时雷达数据（自动优化配置）"""
     ser = test_connection(port, baudrate)
     if not ser:
@@ -581,7 +581,7 @@ if __name__ == "__main__":
     import argparse
 
     parser = argparse.ArgumentParser(description="HLK-LD2451 雷达模块测试工具")
-    parser.add_argument("port", nargs="?", default="COM5", help="串口号 (默认: COM5)")
+    parser.add_argument("port", nargs="?", default="/dev/ttyUSB1", help="串口号 (默认: /dev/ttyUSB1)")
     parser.add_argument("-b", "--baud", type=int, default=256000, help="波特率 (当前真机: 256000)")
     parser.add_argument("--scan", action="store_true", help="仅扫描串口")
     parser.add_argument("--quick", action="store_true", help="快速模式: 仅查看实时数据")

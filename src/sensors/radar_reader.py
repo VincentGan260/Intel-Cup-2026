@@ -140,7 +140,7 @@ class RadarReader(BaseSensorReader):
         if self.is_real:
             import serial as _serial
 
-            port = self.config.get("port", "COM5")
+            port = self.config.get("port", "/dev/ttyRadarLD2451")
             baudrate = self.config.get("baudrate", 256000)
             timeout = self.config.get("timeout", 0.5)
 
