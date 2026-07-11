@@ -19,6 +19,11 @@ def _finite_optional(value):
     return number if math.isfinite(number) else None
 
 
+def _nonnegative_optional(value):
+    number = _finite_optional(value)
+    return number if number is not None and number >= 0.0 else None
+
+
 def build_ride_payload(state: dict, device_id: str) -> dict:
     """Map the Dashboard state contract to the compact cloud schema."""
     gps = state.get("gps_data", {})
@@ -37,8 +42,10 @@ def build_ride_payload(state: dict, device_id: str) -> dict:
         "speed_kmh": max(0.0, float(gps.get("speed_kmh", 0.0) or 0.0)),
         "radar_valid": radar_valid,
         "target_count": max(0, int(radar.get("target_count", 0) or 0)),
-        "nearest_distance_m": _finite_optional(radar.get("nearest_distance_m")) if radar_valid else None,
-        "min_ttc_s": _finite_optional(radar.get("min_ttc_s")) if radar_valid else None,
+        # Radar uses -1 internally for "no target/no approaching target";
+        # the cloud schema represents that state as NULL.
+        "nearest_distance_m": _nonnegative_optional(radar.get("nearest_distance_m")) if radar_valid else None,
+        "min_ttc_s": _nonnegative_optional(radar.get("min_ttc_s")) if radar_valid else None,
         "vision_valid": vision_valid,
         "obstacle_count": max(0, int(vision.get("object_count", 0) or 0)),
         "drivable_area_ratio": _finite_optional(vision.get("drivable_area_ratio")) if vision_valid else None,
@@ -123,6 +130,9 @@ class CloudSyncClient:
                 continue
             try:
                 response = requests.post(url, json=payload, timeout=self.request_timeout)
+                if not response.ok:
+                    print(f"[CloudSync] state rejected status={response.status_code} "
+                          f"body={response.text} payload={payload}")
                 response.raise_for_status()
                 self._state_uploaded += 1
                 if self._state_uploaded == 1 or self._state_uploaded % 10 == 0:

@@ -38,6 +38,14 @@ def main() -> int:
     }, "bike-001")
     assert invalid_numbers["nearest_distance_m"] is None
     assert invalid_numbers["min_ttc_s"] is None
+    no_target = build_ride_payload({
+        "timestamp": 1_700_000_000.0,
+        "radar_data": {"valid": True, "target_count": 0,
+                       "nearest_distance_m": -1.0, "min_ttc_s": -1.0},
+    }, "bike-001")
+    assert no_target["radar_valid"] is True
+    assert no_target["nearest_distance_m"] is None
+    assert no_target["min_ttc_s"] is None
     print("cloud sync payload test passed")
     return 0
 
