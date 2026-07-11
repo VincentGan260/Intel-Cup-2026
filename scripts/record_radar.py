@@ -3,7 +3,7 @@
 ★ 需要真实硬件 + 串口。软件侧逻辑已就绪，接上雷达即可录。
 
 运行（在接了雷达的机器上）：
-    python scripts/record_radar.py --port COM7 --duration 60
+    python scripts/record_radar.py --port COM5 --duration 60
     python scripts/record_radar.py --port /dev/ttyUSB0 --frames 600 --out logs/radar_run1.jsonl
 
 录完用 scripts/replay_radar.py 回放。
@@ -31,19 +31,27 @@ from src.sensors.radar_replay import radar_to_dict
 
 def main() -> None:
     ap = argparse.ArgumentParser(description="LD2451 雷达录制器（存 jsonl）")
-    ap.add_argument("--port", default="COM7", help="串口号（Win:COM7 / Linux:/dev/ttyUSB0）")
-    ap.add_argument("--baud", type=int, default=115200)
+    ap.add_argument("--port", default="COM5", help="串口号（Win:COM5 / Linux:/dev/ttyUSB0）")
+    ap.add_argument("--baud", type=int, default=256000,
+                    help="当前实测LD2451为256000；恢复出厂后可能为115200")
     ap.add_argument("--duration", type=float, default=0.0, help="录制秒数（>0 时按时长）")
     ap.add_argument("--frames", type=int, default=0, help="录制帧数（>0 时按帧数）")
     ap.add_argument("--out", default=None, help="输出 jsonl 路径；默认 logs/radar_<时间戳>.jsonl")
     ap.add_argument("--all", action="store_true", help="连无效帧也录（默认只录 valid 帧）")
     ap.add_argument("--hz", type=float, default=20.0, help="读取频率（雷达 10Hz 输出，默认 20Hz 轮询）")
+    ap.add_argument("--approaching-code", type=int, choices=[0, 1], default=1,
+                    help="靠近方向码；当前LD2451真机标定值为1")
+    ap.add_argument("--angle-sign", type=int, choices=[-1, 1], default=-1,
+                    help="当前安装标定-1后满足左负右正")
     args = ap.parse_args()
 
     out = Path(args.out) if args.out else PROJECT_ROOT / "logs" / f"radar_{int(time.time())}.jsonl"
     out.parent.mkdir(parents=True, exist_ok=True)
 
-    reader = RadarReader(mode="real", config={"port": args.port, "baudrate": args.baud, "timeout": 0.5})
+    reader = RadarReader(mode="real", config={"port": args.port, "baudrate": args.baud,
+                                               "timeout": 0.5,
+                                               "approaching_direction_code": args.approaching_code,
+                                               "angle_sign": args.angle_sign})
     reader.start()
 
     n_total = n_valid = n_with_target = 0

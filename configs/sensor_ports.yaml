@@ -9,6 +9,7 @@ windows:
     port: "COM5"
     baudrate: 9600
     timeout: 1.0
+    max_sentence_age_sec: 2.5
 
   imu:
     port: "COM8"
@@ -16,9 +17,13 @@ windows:
     timeout: 0.1
 
   radar:
-    port: "COM7"
-    baudrate: 115200
+    model: "HLK-LD2451"
+    port: "COM5"       # 个人Windows开发机已实测
+    baudrate: 256000    # 当前这颗雷达的实测波特率
     timeout: 0.5
+    # 2026-07-11真机标定：左前靠近原始上报为正角、方向码01。
+    approaching_direction_code: 1
+    angle_sign: -1  # 统一项目坐标：左负、右正
 
   motor:
     i2c_bus: 3
@@ -29,6 +34,7 @@ dk2500:
     port: "/dev/ttyS5"
     baudrate: 9600
     timeout: 1.0
+    max_sentence_age_sec: 2.5
 
   imu:
     port: "/dev/ttyUSB0"
@@ -36,9 +42,13 @@ dk2500:
     timeout: 0.1
 
   radar:
-    port: "/dev/ttyUSB1"
-    baudrate: 115200
+    model: "HLK-LD2451"
+    port: "/dev/ttyUSB1"  # 占位；接DK2500后必须用 ls /dev/serial/by-id 重新确认
+    baudrate: 256000       # 同一颗雷达迁移上板时保持；若恢复出厂则为115200
     timeout: 0.5
+    # 方向/角度来自雷达前向安装标定，与连接Windows还是DK2500无关。
+    approaching_direction_code: 1
+    angle_sign: -1
 
   motor:
     i2c_bus: 1

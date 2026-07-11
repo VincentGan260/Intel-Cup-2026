@@ -194,6 +194,10 @@ def _make_state(
         timestamp=ts,
         gps_valid=gps.valid,
         gps_speed_kmh=gps.speed_kmh,
+        gps_latitude=gps.latitude,
+        gps_longitude=gps.longitude,
+        gps_fix_quality=gps.fix_quality,
+        gps_satellites=gps.satellites,
         imu_valid=imu.valid,
         imu_roll=imu.roll,
         imu_pitch=imu.pitch,
@@ -340,7 +344,7 @@ def main():
 
     # Radar
     radar_ports = ports.get("radar", {})
-    port_infos["radar"] = {"port": radar_ports.get("port", "N/A"), "baud": str(radar_ports.get("baudrate", 115200))}
+    port_infos["radar"] = {"port": radar_ports.get("port", "N/A"), "baud": str(radar_ports.get("baudrate", 256000))}
     ok, st = _try_start(radar_reader, "Radar", f"port={radar_ports.get('port', 'N/A')}")
     statuses["Radar"] = st
 

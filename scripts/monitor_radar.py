@@ -4,7 +4,7 @@
   桌面就能验证「接近=相对速度为负」(speed_dir) 和「角度左右符号」。
 
 运行：
-    python scripts/monitor_radar.py --port COM7
+    python scripts/monitor_radar.py --port COM5
     python scripts/monitor_radar.py --port /dev/ttyUSB0
 """
 from __future__ import annotations
@@ -28,21 +28,34 @@ from src.sensors.radar_reader import RadarReader
 
 def main() -> None:
     ap = argparse.ArgumentParser(description="LD2451 实时监视（桌面 bring-up）")
-    ap.add_argument("--port", default="COM7", help="串口号（Win:COM7 / Linux:/dev/ttyUSB0）")
-    ap.add_argument("--baud", type=int, default=115200)
+    ap.add_argument("--port", default="COM5", help="串口号（Win:COM5 / Linux:/dev/ttyUSB0）")
+    ap.add_argument("--baud", type=int, default=256000,
+                    help="当前实测LD2451为256000；恢复出厂后可能为115200")
     ap.add_argument("--hz", type=float, default=10.0)
+    ap.add_argument("--approaching-code", type=int, choices=[0, 1], default=1,
+                    help="靠近方向码；当前LD2451真机标定值为1")
+    ap.add_argument("--angle-sign", type=int, choices=[-1, 1], default=-1,
+                    help="角度符号；当前安装标定-1后满足左负右正")
     args = ap.parse_args()
 
-    reader = RadarReader(mode="real", config={"port": args.port, "baudrate": args.baud, "timeout": 0.5})
+    reader = RadarReader(mode="real", config={"port": args.port, "baudrate": args.baud,
+                                                "timeout": 0.5,
+                                                "approaching_direction_code": args.approaching_code,
+                                                "angle_sign": args.angle_sign})
     reader.start()
     print("实时监视中（Ctrl+C 退出）。挥手/走动应看到读数变化；")
     print("  走近 → 相对速度应为「负(接近)」；站右侧 → 看角度正负是否符合预期。\n")
     period = 1.0 / max(1.0, args.hz)
+    invalid_count = 0
     try:
         while True:
             rd = reader.read_once()
             if not rd.valid:
-                print("  [无效帧 / 未连接]"); time.sleep(period); continue
+                invalid_count += 1
+                if invalid_count % max(1, int(args.hz * 3)) == 0:
+                    print("  [等待完整帧] 无目标时雷达约1秒上报一次；持续无数据再检查连接")
+                time.sleep(period); continue
+            invalid_count = 0
             if not rd.targets:
                 print("  无目标"); time.sleep(period); continue
             parts = []

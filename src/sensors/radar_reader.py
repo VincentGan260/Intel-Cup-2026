@@ -29,7 +29,11 @@ DATA_HEADER = b"\xF4\xF3\xF2\xF1"
 DATA_END = b"\xF8\xF7\xF6\xF5"
 
 
-def parse_radar_frame(data: bytes) -> Optional[dict]:
+def parse_radar_frame(
+    data: bytes,
+    approaching_direction_code: int = 1,
+    angle_sign: int = -1,
+) -> Optional[dict]:
     """解析一帧雷达数据。
 
     数据帧格式:
@@ -38,7 +42,8 @@ def parse_radar_frame(data: bytes) -> Optional[dict]:
     每个目标 5 字节:
       [角度(1B)] [距离(1B)] [速度方向(1B)] [速度值(1B)] [信噪比(1B)]
       实际角度 = 原始值 - 0x80
-      速度方向: 00=靠近(接近), 01=远离
+      速度方向: V1.03 表格写 01=靠近，但同页数据实例写 00=靠近。
+      因此由 approaching_direction_code 配置；当前前向安装真机标定为 01=靠近。
       距离: 0-100 米
       速度: 0-120 km/h
     """
@@ -76,13 +81,12 @@ def parse_radar_frame(data: bytes) -> Optional[dict]:
         speed_kmh = t[3]
         snr = t[4]
 
-        angle = angle_raw - 0x80
+        angle = (angle_raw - 0x80) * angle_sign
         speed_mps = speed_kmh / 3.6
-        # ⚠️ 待真机确认：手册「速度方向」表9(01=靠近) 与数据实例(00=靠近) 矛盾，
-        # 此处按【数据实例】取 00=靠近(负=接近)。上真机用已知逼近目标核对，取反会漏报。
-        if speed_dir == 0:  # 靠近
+        is_approaching = speed_dir == approaching_direction_code
+        if is_approaching:
             relative_speed_mps = -speed_mps
-        else:  # 远离
+        else:
             relative_speed_mps = speed_mps
 
         targets.append(
@@ -92,6 +96,8 @@ def parse_radar_frame(data: bytes) -> Optional[dict]:
                 "relative_speed_mps": relative_speed_mps,
                 "angle_deg": float(angle),
                 "snr": int(snr),
+                "speed_direction_code": int(speed_dir),
+                "is_approaching": is_approaching,
             }
         )
 
@@ -123,13 +129,19 @@ class RadarReader(BaseSensorReader):
         super().__init__(mode, config)
         self._serial: Optional["serial.Serial"] = None  # noqa: F821
         self._buffer = bytearray()
+        self.approaching_direction_code = int(self.config.get("approaching_direction_code", 1))
+        if self.approaching_direction_code not in (0, 1):
+            raise ValueError("radar approaching_direction_code must be 0 or 1")
+        self.angle_sign = int(self.config.get("angle_sign", -1))
+        if self.angle_sign not in (-1, 1):
+            raise ValueError("radar angle_sign must be -1 or 1")
 
     def start(self) -> None:
         if self.is_real:
             import serial as _serial
 
-            port = self.config.get("port", "COM7")
-            baudrate = self.config.get("baudrate", 115200)
+            port = self.config.get("port", "COM5")
+            baudrate = self.config.get("baudrate", 256000)
             timeout = self.config.get("timeout", 0.5)
 
             try:
@@ -241,7 +253,11 @@ class RadarReader(BaseSensorReader):
             frame = bytes(self._buffer[:frame_total])
             del self._buffer[:frame_total]
 
-            result = parse_radar_frame(frame)
+            result = parse_radar_frame(
+                frame,
+                self.approaching_direction_code,
+                self.angle_sign,
+            )
             if result is not None:
                 return result
 

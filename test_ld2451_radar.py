@@ -2,7 +2,7 @@
 HLK-LD2451 雷达模块测试脚本
 ============================
 通信协议版本: V1.03 (2024-7-1)
-默认参数: 115200 baud, 1 stop bit, no parity
+当前真机参数: 256000 baud, 1 stop bit, no parity
 
 命令格式:
   帧头(4B) + 数据长度(2B, LE) + 命令字(2B) + 命令值(NB) + 帧尾(4B)
@@ -17,7 +17,7 @@ HLK-LD2451 雷达模块测试脚本
 每个目标信息(5字节):
   [角度(1B)] [距离(1B)] [速度方向(1B)] [速度值(1B)] [信噪比(1B)]
   实际角度 = 原始值 - 0x80 (范围: -128~127度)
-  速度方向: 00=靠近, 01=远离
+  当前前向安装真机标定: 01=靠近, 00=远离；原始正角需取反为项目坐标
   距离: 0~100米
   速度: 0~120 km/h
 """
@@ -102,7 +102,7 @@ def scan_ports():
 # ============================================================
 #  雷达基本通信测试
 # ============================================================
-def test_connection(port: str, baudrate: int = 115200, timeout: float = 0.5):
+def test_connection(port: str, baudrate: int = 256000, timeout: float = 0.5):
     """测试与雷达模块的基本连接"""
     print(f"\n>>> 正在连接 {port} (波特率: {baudrate})...")
     try:
@@ -348,8 +348,8 @@ def parse_radar_data(data: bytes):
         speed_val = t[3]
         snr = t[4]
 
-        angle = angle_raw - 0x80
-        dir_str = "靠近" if speed_dir == 0 else "远离" if speed_dir == 1 else f"未知({speed_dir})"
+        angle = -(angle_raw - 0x80)
+        dir_str = "靠近" if speed_dir == 1 else "远离" if speed_dir == 0 else f"未知({speed_dir})"
 
         targets.append(
             {
@@ -512,7 +512,7 @@ def optimize_for_detection(ser: serial.Serial):
     time.sleep(0.2)
 
 
-def run_all_tests(port="COM7", baudrate=115200):
+def run_all_tests(port="COM5", baudrate=256000):
     """运行所有雷达测试"""
     print(f"\n{'='*60}")
     print(f"  HLK-LD2451 雷达模块测试")
@@ -562,7 +562,7 @@ def run_all_tests(port="COM7", baudrate=115200):
             print(f"\n  串口已关闭")
 
 
-def quick_data_view(port="COM7", baudrate=115200):
+def quick_data_view(port="COM5", baudrate=256000):
     """快速模式：只查看实时雷达数据（自动优化配置）"""
     ser = test_connection(port, baudrate)
     if not ser:
@@ -581,8 +581,8 @@ if __name__ == "__main__":
     import argparse
 
     parser = argparse.ArgumentParser(description="HLK-LD2451 雷达模块测试工具")
-    parser.add_argument("port", nargs="?", default="COM7", help="串口号 (默认: COM7)")
-    parser.add_argument("-b", "--baud", type=int, default=115200, help="波特率 (默认: 115200)")
+    parser.add_argument("port", nargs="?", default="COM5", help="串口号 (默认: COM5)")
+    parser.add_argument("-b", "--baud", type=int, default=256000, help="波特率 (当前真机: 256000)")
     parser.add_argument("--scan", action="store_true", help="仅扫描串口")
     parser.add_argument("--quick", action="store_true", help="快速模式: 仅查看实时数据")
     parser.add_argument("--firmware", action="store_true", help="仅读取固件版本")

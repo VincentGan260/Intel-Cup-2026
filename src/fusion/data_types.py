@@ -198,6 +198,10 @@ class SystemState:
     # — GPS —
     gps_valid: bool = False
     gps_speed_kmh: float = 0.0
+    gps_latitude: float = 0.0
+    gps_longitude: float = 0.0
+    gps_fix_quality: int = 0
+    gps_satellites: int = 0
 
     # — IMU —
     imu_valid: bool = False

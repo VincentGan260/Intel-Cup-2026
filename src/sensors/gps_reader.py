@@ -25,6 +25,21 @@ from src.sensors.sensor_base import BaseSensorReader
 # — NMEA 简单解析器（不依赖 pynmea2） —
 
 
+def _nmea_checksum_valid(sentence: str) -> bool:
+    """校验 NMEA `$...*HH` XOR checksum。正式采集拒绝残缺/坏句。"""
+    sentence = sentence.strip()
+    if not sentence.startswith("$") or "*" not in sentence:
+        return False
+    body, supplied = sentence[1:].rsplit("*", 1)
+    checksum = 0
+    for char in body:
+        checksum ^= ord(char)
+    try:
+        return checksum == int(supplied[:2], 16)
+    except ValueError:
+        return False
+
+
 def _parse_nmea_gga(sentence: str) -> Optional[dict]:
     """解析 GGA 报文：$GPGGA,123519,4807.038,N,01131.000,E,1,08,0.9,545.4,M,46.9,M,,*47
 
@@ -101,6 +116,14 @@ class GPSReader(BaseSensorReader):
         self._mock_speed: float = 0.0
         self._mock_lat: float = 31.2304
         self._mock_lon: float = 121.4737
+        self._latest_gga: Optional[dict] = None
+        self._latest_rmc: Optional[dict] = None
+        self._gga_received_mono: float = 0.0
+        self._rmc_received_mono: float = 0.0
+        self._gga_received_wall: float = 0.0
+        self._rmc_received_wall: float = 0.0
+        self._bad_nmea_count: int = 0
+        self._max_sentence_age_sec = float(self.config.get("max_sentence_age_sec", 2.5))
 
     def start(self) -> None:
         if self.is_real:
@@ -147,11 +170,6 @@ class GPSReader(BaseSensorReader):
             if self._serial is None or not self._serial.is_open:
                 return gps
 
-            speed_kmh = 0.0
-            lat, lon = 0.0, 0.0
-            fix_q, sats = 0, 0
-            has_gga = has_rmc = False
-
             for _ in range(20):  # 读 20 行或直到超时
                 raw = self._serial.readline()
                 if not raw:
@@ -161,32 +179,59 @@ class GPSReader(BaseSensorReader):
                 except Exception:
                     continue
 
+                if not _nmea_checksum_valid(line):
+                    self._bad_nmea_count += 1
+                    continue
+
+                received_mono = time.monotonic()
+                received_wall = now()
+
                 if line.startswith("$GPGGA") or line.startswith("$GNGGA"):
                     parsed = _parse_nmea_gga(line)
                     if parsed:
-                        lat = parsed["latitude"]
-                        lon = parsed["longitude"]
-                        fix_q = parsed["fix_quality"]
-                        sats = parsed["satellites"]
-                        has_gga = True
+                        self._latest_gga = parsed
+                        self._gga_received_mono = received_mono
+                        self._gga_received_wall = received_wall
 
                 elif line.startswith("$GPRMC") or line.startswith("$GNRMC"):
                     parsed = _parse_nmea_rmc(line)
-                    if parsed and parsed["status"] == "A":
-                        speed_kmh = parsed["speed_kn"] * 1.852
-                        has_rmc = True
+                    if parsed:
+                        self._latest_rmc = parsed
+                        self._rmc_received_mono = received_mono
+                        self._rmc_received_wall = received_wall
 
-                if has_gga and has_rmc:
+                # 一次调用拿到任一导航句即可返回，剩余句由下次读取并与缓存组合。
+                if self._latest_gga is not None and self._latest_rmc is not None:
                     break
 
-            if has_gga or has_rmc:
-                gps.speed_kmh = speed_kmh
-                gps.speed_mps = gps_kmh_to_mps(speed_kmh)
-                gps.latitude = lat
-                gps.longitude = lon
-                gps.fix_quality = fix_q
-                gps.satellites = sats
-                gps.valid = has_rmc and fix_q > 0
+            current_mono = time.monotonic()
+            gga_fresh = (
+                self._latest_gga is not None
+                and current_mono - self._gga_received_mono <= self._max_sentence_age_sec
+            )
+            rmc_fresh = (
+                self._latest_rmc is not None
+                and current_mono - self._rmc_received_mono <= self._max_sentence_age_sec
+            )
+            if gga_fresh:
+                gga = self._latest_gga or {}
+                gps.latitude = float(gga.get("latitude", 0.0))
+                gps.longitude = float(gga.get("longitude", 0.0))
+                gps.fix_quality = int(gga.get("fix_quality", 0))
+                gps.satellites = int(gga.get("satellites", 0))
+            if rmc_fresh:
+                rmc = self._latest_rmc or {}
+                gps.speed_kmh = float(rmc.get("speed_kn", 0.0)) * 1.852
+                gps.speed_mps = gps_kmh_to_mps(gps.speed_kmh)
+            gps.valid = bool(
+                gga_fresh and rmc_fresh
+                and gps.fix_quality > 0
+                and (self._latest_rmc or {}).get("status") == "A"
+                and -90.0 <= gps.latitude <= 90.0
+                and -180.0 <= gps.longitude <= 180.0
+            )
+            if gga_fresh or rmc_fresh:
+                gps.timestamp = max(self._gga_received_wall, self._rmc_received_wall)
 
         except Exception as e:
             print(f"[GPSReader] 读取异常: {e}")

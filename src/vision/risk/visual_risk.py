@@ -60,7 +60,8 @@ def _clamp01(value: float) -> float:
 
 
 def calculate_class_risk(risk_class: str, cfg: VisualRiskConfig) -> float:
-    """类别基础危险度：行人 > 机动车 > 非机动车（见 class_mapping）。"""
+    """类别基础危险度。最终输出类别无关：所有 obstacle 取同一较高基础危险度
+    （见 class_mapping.CLASS_BASE_RISK）。差异化威胁由接近度 / 在途 / 尺寸等因子体现。"""
     return float(CLASS_BASE_RISK.get(risk_class, cfg.default_class_risk))
 
 

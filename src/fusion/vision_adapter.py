@@ -205,9 +205,11 @@ class VisionAdapter:
                 objects.append(obj)
 
                 max_conf = max(max_conf, det.confidence)
-                if det.risk_class == "pedestrian":
+                # risk_class 现统一为 "obstacle"（类别无关输出）；person / vehicle
+                # 计数改用原始 COCO 类名，仅作展示 / 融合特征，不影响风险分级。
+                if det.class_name == "person":
                     person_count += 1
-                elif det.risk_class in ("motor_vehicle", "non_motor_vehicle"):
+                elif det.class_name in ("car", "bus", "truck", "bicycle", "motorcycle"):
                     vehicle_count += 1
 
             # 可行驶区域比例
