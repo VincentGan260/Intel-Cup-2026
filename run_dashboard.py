@@ -324,8 +324,8 @@ def main() -> None:
                         help="确认真实驱动DRV2605；--motor-mode real时必须提供")
     parser.add_argument("--configured-warning-range-m", type=float, default=None,
                         help="与LD2451 APP最远检测距离一致的比赛工作范围")
-    parser.add_argument("--radar-to-motor-p95-ms", type=float, default=None,
-                        help="DK-2500实测雷达到DRV2605 GO的P95延迟")
+    parser.add_argument("--radar-to-motor-p95-ms", type=float, default=0.469,
+                        help="DK-2500实测雷达到DRV2605 GO的P95延迟，默认0.469 ms")
     parser.add_argument("--target-stale-ms", type=float, default=500.0,
                         help="有目标100ms周期的5倍工程容错值")
     parser.add_argument("--radar-communication-watchdog-ms", type=float, default=2000.0,
@@ -335,7 +335,6 @@ def main() -> None:
     if args.enable_risk_rule:
         required_values = {
             "--configured-warning-range-m": args.configured_warning_range_m,
-            "--radar-to-motor-p95-ms": args.radar_to_motor_p95_ms,
         }
         missing = [name for name, value in required_values.items() if value is None]
         if missing:
