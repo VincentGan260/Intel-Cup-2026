@@ -6,9 +6,17 @@ import queue
 import re
 import threading
 import time
+import math
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional
+
+
+def _finite_optional(value):
+    if value is None:
+        return None
+    number = float(value)
+    return number if math.isfinite(number) else None
 
 
 def build_ride_payload(state: dict, device_id: str) -> dict:
@@ -24,16 +32,16 @@ def build_ride_payload(state: dict, device_id: str) -> dict:
         "device_id": device_id,
         "collected_at": datetime.fromtimestamp(timestamp, timezone.utc).isoformat(),
         "gps_valid": gps_valid,
-        "latitude": gps.get("latitude") if gps_valid else None,
-        "longitude": gps.get("longitude") if gps_valid else None,
+        "latitude": _finite_optional(gps.get("latitude")) if gps_valid else None,
+        "longitude": _finite_optional(gps.get("longitude")) if gps_valid else None,
         "speed_kmh": max(0.0, float(gps.get("speed_kmh", 0.0) or 0.0)),
         "radar_valid": radar_valid,
         "target_count": max(0, int(radar.get("target_count", 0) or 0)),
-        "nearest_distance_m": radar.get("nearest_distance_m") if radar_valid else None,
-        "min_ttc_s": radar.get("min_ttc_s") if radar_valid else None,
+        "nearest_distance_m": _finite_optional(radar.get("nearest_distance_m")) if radar_valid else None,
+        "min_ttc_s": _finite_optional(radar.get("min_ttc_s")) if radar_valid else None,
         "vision_valid": vision_valid,
         "obstacle_count": max(0, int(vision.get("object_count", 0) or 0)),
-        "drivable_area_ratio": vision.get("drivable_area_ratio") if vision_valid else None,
+        "drivable_area_ratio": _finite_optional(vision.get("drivable_area_ratio")) if vision_valid else None,
         "risk_score": min(1.0, max(0.0, float(state.get("risk_score", 0.0) or 0.0))),
         "risk_level": min(2, max(0, int(state.get("risk_level", 0) or 0))),
     }
@@ -60,9 +68,12 @@ class CloudSyncClient:
         self._state_queue: queue.Queue = queue.Queue(maxsize=2)
         self._video_queue: queue.Queue = queue.Queue()
         self._last_state_queued = 0.0
+        self._record_done = threading.Event()
         self._threads = []
 
     def start(self) -> None:
+        for path in self.spool_dir.glob("*.partial.mp4"):
+            path.unlink(missing_ok=True)
         for path in sorted(self.spool_dir.glob("*.mp4")):
             self._video_queue.put((path, self._started_at_from_path(path)))
         self._threads = [
@@ -129,6 +140,7 @@ class CloudSyncClient:
     def _video_record_loop(self) -> None:
         writer = None
         current_path: Optional[Path] = None
+        partial_path: Optional[Path] = None
         started_at: Optional[datetime] = None
         segment_start = 0.0
         frame_interval = 1.0 / self.video_fps
@@ -140,7 +152,8 @@ class CloudSyncClient:
                     started_at = datetime.now(timezone.utc)
                     name = f"{self.device_id}_{started_at.strftime('%Y%m%dT%H%M%S%fZ')}.mp4"
                     current_path = self.spool_dir / name
-                    writer, codec = self._open_writer(frame, current_path)
+                    partial_path = current_path.with_name(current_path.stem + ".partial.mp4")
+                    writer, codec = self._open_writer(frame, partial_path)
                     segment_start = time.monotonic()
                     if writer is None:
                         print("[CloudSync] no usable MP4 codec")
@@ -151,22 +164,28 @@ class CloudSyncClient:
                 if time.monotonic() - segment_start >= self.segment_seconds:
                     writer.release()
                     writer = None
-                    if current_path is not None and started_at is not None:
+                    if (current_path is not None and partial_path is not None
+                            and started_at is not None):
+                        partial_path.replace(current_path)
                         self._video_queue.put((current_path, started_at))
                     current_path = None
+                    partial_path = None
                     started_at = None
             remaining = frame_interval - (time.monotonic() - loop_start)
             if remaining > 0:
                 self._stop.wait(remaining)
         if writer is not None:
             writer.release()
-            if current_path is not None and started_at is not None and current_path.exists():
+            if (current_path is not None and partial_path is not None
+                    and started_at is not None and partial_path.exists()):
+                partial_path.replace(current_path)
                 self._video_queue.put((current_path, started_at))
+        self._record_done.set()
 
     def _video_upload_loop(self) -> None:
         import requests
         url = f"{self.base_url}/api/video-segments"
-        while not self._stop.is_set() or not self._video_queue.empty():
+        while not self._record_done.is_set() or not self._video_queue.empty():
             try:
                 path, started_at = self._video_queue.get(timeout=0.5)
             except queue.Empty:

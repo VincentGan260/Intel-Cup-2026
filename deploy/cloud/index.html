@@ -1,0 +1,50 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>骑行安全云端 Dashboard</title>
+  <style>
+    :root{color-scheme:dark;--bg:#07111f;--panel:#101f32;--line:#27405d;--cyan:#31d7ff;--green:#3ee19c;--warn:#ffbf47;--bad:#ff627d}
+    *{box-sizing:border-box}body{margin:0;background:linear-gradient(135deg,#07111f,#0b1a2c);font:14px system-ui;color:#e9f4ff}
+    header{display:flex;justify-content:space-between;align-items:center;padding:18px 24px;border-bottom:1px solid var(--line)}
+    h1{font-size:21px;margin:0}.controls{display:flex;gap:8px}input,button{background:#0b1727;color:#fff;border:1px solid var(--line);border-radius:7px;padding:8px 10px}button{cursor:pointer}
+    main{padding:18px;max-width:1500px;margin:auto}.status{margin-bottom:12px;color:#91a9c1}.grid{display:grid;grid-template-columns:repeat(6,1fr);gap:12px}
+    .card,.panel{background:rgba(16,31,50,.94);border:1px solid var(--line);border-radius:12px;padding:15px;box-shadow:0 10px 30px #0004}
+    .label{color:#91a9c1;font-size:12px}.value{font-size:26px;font-weight:700;margin-top:7px;color:var(--cyan)}
+    .two{display:grid;grid-template-columns:1.1fr .9fr;gap:14px;margin-top:14px}.panel h2{font-size:16px;margin:0 0 12px}
+    table{width:100%;border-collapse:collapse;font-size:12px}th,td{text-align:left;padding:8px;border-bottom:1px solid #20354d}th{color:#8fa9c2}
+    .scroll{max-height:390px;overflow:auto}.videos{display:flex;flex-wrap:wrap;gap:7px;margin-bottom:12px}.videos button.active{border-color:var(--cyan);color:var(--cyan)}
+    video{width:100%;max-height:350px;background:#000;border-radius:8px}.ok{color:var(--green)}.bad{color:var(--bad)}
+    @media(max-width:1000px){.grid{grid-template-columns:repeat(3,1fr)}.two{grid-template-columns:1fr}}@media(max-width:600px){header{display:block}.controls{margin-top:12px}.grid{grid-template-columns:repeat(2,1fr)}}
+  </style>
+</head>
+<body>
+<header><h1>骑行安全云端 Dashboard</h1><div class="controls"><input id="device" value="bike-001"><button onclick="refreshAll()">刷新</button></div></header>
+<main>
+  <div id="status" class="status">正在连接云端数据…</div>
+  <section class="grid">
+    <div class="card"><div class="label">速度</div><div id="speed" class="value">--</div></div>
+    <div class="card"><div class="label">风险分数</div><div id="risk" class="value">--</div></div>
+    <div class="card"><div class="label">雷达目标</div><div id="targets" class="value">--</div></div>
+    <div class="card"><div class="label">视觉障碍物</div><div id="obstacles" class="value">--</div></div>
+    <div class="card"><div class="label">最近距离</div><div id="distance" class="value">--</div></div>
+    <div class="card"><div class="label">可行驶区域</div><div id="drivable" class="value">--</div></div>
+  </section>
+  <section class="two">
+    <div class="panel"><h2>最近一小时骑行数据</h2><div class="scroll"><table><thead><tr><th>时间</th><th>速度</th><th>雷达</th><th>视觉</th><th>距离</th><th>TTC</th><th>风险</th></tr></thead><tbody id="rows"></tbody></table></div></div>
+    <div class="panel"><h2>最近一小时视频</h2><div id="videos" class="videos"></div><video id="player" controls preload="metadata"></video></div>
+  </section>
+</main>
+<script>
+const $=id=>document.getElementById(id), fmt=(v,s='')=>v==null?'--':`${Number(v).toFixed(2)}${s}`;
+async function json(url){const r=await fetch(url,{cache:'no-store'});if(!r.ok)throw new Error(`${r.status} ${await r.text()}`);return r.json()}
+function device(){return encodeURIComponent($('device').value.trim()||'bike-001')}
+async function latest(){const d=await json(`/api/ride-samples/latest?device_id=${device()}`);$('speed').textContent=fmt(d.speed_kmh,' km/h');$('risk').textContent=fmt(d.risk_score);$('targets').textContent=d.target_count;$('obstacles').textContent=d.obstacle_count;$('distance').textContent=fmt(d.nearest_distance_m,' m');$('drivable').textContent=d.drivable_area_ratio==null?'--':`${(d.drivable_area_ratio*100).toFixed(1)}%`;return d}
+async function recent(){const d=await json(`/api/ride-samples/recent?device_id=${device()}&minutes=60&limit=3600`);$('rows').innerHTML=d.items.slice().reverse().map(x=>`<tr><td>${new Date(x.collected_at).toLocaleTimeString()}</td><td>${fmt(x.speed_kmh)}</td><td>${x.radar_valid?x.target_count:'无效'}</td><td>${x.vision_valid?x.obstacle_count:'无效'}</td><td>${fmt(x.nearest_distance_m)}</td><td>${fmt(x.min_ttc_s)}</td><td>${fmt(x.risk_score)} / ${x.risk_level}</td></tr>`).join('')}
+async function videoList(){const d=await json(`/api/video-segments/recent?device_id=${device()}&minutes=60`);$('videos').innerHTML='';d.items.forEach((x,i)=>{const b=document.createElement('button');b.textContent=new Date(x.started_at).toLocaleTimeString();b.onclick=()=>{$('player').src=x.video_url;document.querySelectorAll('.videos button').forEach(v=>v.classList.remove('active'));b.classList.add('active')};$('videos').appendChild(b);if(i===0)b.click()});if(!d.items.length){$('videos').textContent='最近一小时暂无视频';$('player').removeAttribute('src')}}
+async function refreshAll(){try{const d=await latest();await Promise.all([recent(),videoList()]);$('status').innerHTML=`<span class="ok">● 已连接</span>　设备 ${d.device_id}　最后采集 ${new Date(d.collected_at).toLocaleString()}`}catch(e){$('status').innerHTML=`<span class="bad">● 数据不可用</span>　${e.message}`}}
+refreshAll();setInterval(refreshAll,5000);
+</script>
+</body>
+</html>
