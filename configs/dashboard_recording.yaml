@@ -5,13 +5,14 @@ sync:
   radar_max_delta_ms: 100.0
   gps_max_delta_ms: 1000.0
 quality:
+  gps_required: false
   min_sample_hz: 1.5
   max_missing_frame_ratio: 0.0
   max_vision_invalid_ratio: 0.05
   max_radar_invalid_ratio: 0.50
-  max_gps_invalid_ratio: 0.25
+  max_gps_invalid_ratio: 1.00
   max_radar_stale_ratio: 0.25
-  max_gps_stale_ratio: 0.25
+  max_gps_stale_ratio: 1.00
   max_vision_p95_ms: 1000.0
 storage:
   min_free_gb: 2.0

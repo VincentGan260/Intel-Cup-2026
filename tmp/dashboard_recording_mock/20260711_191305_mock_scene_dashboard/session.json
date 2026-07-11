@@ -3,8 +3,8 @@
   "scene": "mock_scene",
   "profile": "windows",
   "host": "Master",
-  "started_wall_time_ns": 1783761557462546300,
-  "started_monotonic_ns": 71382737484300,
+  "started_wall_time_ns": 1783768387362398500,
+  "started_monotonic_ns": 78212722379100,
   "alignment_clock": "monotonic_ns",
   "primary_timeline": "camera",
   "sync_thresholds_ms": {
@@ -14,20 +14,21 @@
     "gps_max_delta_ms": 1000.0
   },
   "quality_limits": {
+    "gps_required": false,
     "min_sample_hz": 1.5,
     "max_missing_frame_ratio": 0.0,
     "max_vision_invalid_ratio": 0.05,
     "max_radar_invalid_ratio": 0.5,
-    "max_gps_invalid_ratio": 0.25,
+    "max_gps_invalid_ratio": 1.0,
     "max_radar_stale_ratio": 0.25,
-    "max_gps_stale_ratio": 0.25,
+    "max_gps_stale_ratio": 1.0,
     "max_vision_p95_ms": 1000.0
   },
   "model_path": "",
   "vision_config": "",
-  "git_commit": "2ee1eaad4269b523b6f723eaca66ca0f4d3581a5",
-  "model_sha256": "2006bf8c7151f39daacf2206c51b6a8cbe10ccfed7b6a3d74b3d59a43c138b3b",
-  "vision_config_sha256": "2006bf8c7151f39daacf2206c51b6a8cbe10ccfed7b6a3d74b3d59a43c138b3b",
+  "git_commit": "bc362285c0219a72aba9df83c12adc3175eaf4ec",
+  "model_sha256": "ca19dbcac9e3769fa4de50731aff547b1a40f196fb824bcb93da52b647c9a209",
+  "vision_config_sha256": "281363299e81f312ab073b39ea17b8ca31f8f357d0421d81cde733b12493b960",
   "versions": {
     "feature_schema": "dashboard-sample-v2",
     "calibration": "uncalibrated",
@@ -54,7 +55,5 @@
     "vision_features",
     "vision_radar_fusion"
   ],
-  "group_id": "mock-group",
-  "ended_wall_time_ns": 1783761637859510900,
-  "sample_count": 7
+  "group_id": "mock-group"
 }

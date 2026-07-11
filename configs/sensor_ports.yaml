@@ -31,7 +31,7 @@ windows:
 
 dk2500:
   gps:
-    port: "/dev/ttyGPSNEO"       # udev稳定链接，实测指向/dev/ttyUSB0
+    port: "/dev/ttyS5"           # 当前上车接线使用主板UART；GPS失效时仍作为可选模态记录valid=false
     baudrate: 9600
     timeout: 1.0
     max_sentence_age_sec: 2.5

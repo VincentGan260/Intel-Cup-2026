@@ -22,7 +22,10 @@ class GTMRFNRuntime:
     def predict_row(self, row: dict[str, Any]) -> RiskPrediction:
         vector = vectorize_fusion_row(row, self.schema); self.buffer.append(vector); frames = list(self.buffer); frames = [frames[0]] * (self.schema.window_size - len(frames)) + frames
         raw = np.stack(frames); x = (raw - self.mu) / self.sigma
-        for sl in self.slices.values(): x[:, sl.stop - 1] = raw[:, sl.stop - 1]
+        for sl in self.slices.values():
+            valid = raw[:, sl.stop - 1:sl.stop]
+            x[:, sl.start:sl.stop - 1] *= valid
+            x[:, sl.stop - 1] = raw[:, sl.stop - 1]
         tensors = {m: torch.from_numpy(x[:, sl].astype(np.float32)).unsqueeze(0) for m, sl in self.slices.items()}
         with torch.no_grad(): probabilities = torch.softmax(self.model(tensors), 1)[0].numpy()
         return RiskPrediction(tuple(float(v) for v in probabilities), float(probabilities @ np.asarray(self.schema.score_weights)), int(probabilities.argmax()))

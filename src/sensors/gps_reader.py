@@ -97,7 +97,7 @@ def _parse_nmea_rmc(sentence: str) -> Optional[dict]:
         if len(parts) < 8:
             return None
         status = parts[2]
-        speed_kn = float(parts[6]) if parts[6] else 0.0
+        speed_kn = float(parts[7]) if parts[7] else 0.0
         return {"speed_kn": speed_kn, "status": status}
     except (ValueError, IndexError):
         return None
@@ -157,7 +157,7 @@ class GPSReader(BaseSensorReader):
 
     def read_once(self) -> GPSData:
         ts = now()
-        if self.is_real and self._serial is not None:
+        if self.is_real:
             result = self._read_real(ts)
         else:
             result = self._read_mock(ts)

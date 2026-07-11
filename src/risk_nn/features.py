@@ -67,6 +67,23 @@ def _value(data: dict[str, Any], name: str) -> float:
     return float(data.get(name, 0.0) or 0.0)
 
 
+def _visual_value(row: dict[str, Any], data: dict[str, Any], name: str) -> float:
+    detections = data.get("detections", []) or []
+    if name == "max_detection_confidence":
+        return max((float(d.get("confidence", 0.0)) for d in detections), default=0.0)
+    if name in {"largest_bbox_area_ratio", "nearest_obstacle_bottom_ratio"}:
+        frame = row.get("frame") or {}
+        width, height = float(frame.get("width", 0)), float(frame.get("height", 0))
+        if width <= 0 or height <= 0:
+            return 0.0
+        boxes = [d.get("bbox") for d in detections if len(d.get("bbox") or []) == 4]
+        if name == "largest_bbox_area_ratio":
+            return max((max(0.0, b[2] - b[0]) * max(0.0, b[3] - b[1]) /
+                        (width * height) for b in boxes), default=0.0)
+        return max((float(b[3]) / height for b in boxes), default=0.0)
+    return _value(data, name)
+
+
 def vectorize_fusion_row(row: dict[str, Any], schema: FeatureSchema) -> np.ndarray:
     """Convert one fusion.jsonl row to the frozen feature order."""
     values: list[float] = []
@@ -75,7 +92,8 @@ def vectorize_fusion_row(row: dict[str, Any], schema: FeatureSchema) -> np.ndarr
         data = block.get("data") if isinstance(block, dict) and "data" in block else block
         data = data if isinstance(data, dict) else {}
         valid = bool(block.get("valid", data.get("valid", False)))
-        values.extend(_value(data, name) if valid else 0.0 for name in schema.features[modality])
+        getter = (lambda name: _visual_value(row, data, name)) if modality == "vision" else (lambda name: _value(data, name))
+        values.extend(getter(name) if valid else 0.0 for name in schema.features[modality])
         values.append(float(valid))
     return np.asarray(values, dtype=np.float32)
 

@@ -58,8 +58,15 @@ def check_session(session_dir: Path) -> tuple[dict, int]:
         nonzero = [value for value in values if value]
         if len(nonzero) != len(values) or any(b <= a for a, b in zip(nonzero, nonzero[1:])):
             errors.append(f"{key} 缺失或未严格递增")
+    limits = meta.get("quality_limits", {})
+    gps_required = bool(limits.get("gps_required", False))
     for key in ("radar_sample_monotonic_ns", "gps_sample_monotonic_ns"):
         values = [row.get("timestamps", {}).get(key, 0) for row in rows]
+        if key.startswith("gps_") and not gps_required:
+            nonzero = [value for value in values if value]
+            if any(b < a for a, b in zip(nonzero, nonzero[1:])):
+                errors.append(f"{key} 发生倒退")
+            continue
         if any(not value for value in values) or any(b < a for a, b in zip(values, values[1:])):
             errors.append(f"{key} 缺失或发生倒退")
 
@@ -92,7 +99,7 @@ def check_session(session_dir: Path) -> tuple[dict, int]:
     gps_delta = [float(x) for x in gps_delta_raw if isinstance(x, (int, float))]
     if len(radar_delta) != len(rows):
         errors.append("存在缺失的雷达实际样本到达时间")
-    if len(gps_delta) != len(rows):
+    if gps_required and len(gps_delta) != len(rows):
         errors.append("存在缺失的GPS实际样本到达时间")
     thresholds = meta.get("sync_thresholds_ms", {})
     drivable = [float((row.get("vision") or {}).get("drivable_area_ratio", 0)) for row in rows
@@ -100,10 +107,11 @@ def check_session(session_dir: Path) -> tuple[dict, int]:
     empty_detections = sum(not (row.get("vision") or {}).get("detections") for row in rows)
     radar_target_frames = sum(bool((row.get("radar") or {}).get("targets")) for row in rows)
     matched_frames = sum((row.get("fusion") or {}).get("vision_radar_count", 0) > 0 for row in rows)
-    limits = meta.get("quality_limits", {})
     for modality, limit_name in (("vision", "max_vision_invalid_ratio"),
                                  ("radar", "max_radar_invalid_ratio"),
                                  ("gps", "max_gps_invalid_ratio")):
+        if modality == "gps" and not gps_required:
+            continue
         invalid_ratio = 1.0 - modalities[modality]["valid_ratio"]
         if invalid_ratio > float(limits.get(limit_name, 1.0)):
             errors.append(f"{modality}无效比例 {invalid_ratio:.1%} 过高")
@@ -117,7 +125,7 @@ def check_session(session_dir: Path) -> tuple[dict, int]:
         errors.append(f"实际采样率 {actual_hz:.2f} Hz 低于最低要求")
     if radar_stale_ratio > float(limits.get("max_radar_stale_ratio", 1.0)):
         errors.append(f"雷达同步超时比例 {radar_stale_ratio:.1%} 过高")
-    if gps_stale_ratio > float(limits.get("max_gps_stale_ratio", 1.0)):
+    if gps_required and gps_stale_ratio > float(limits.get("max_gps_stale_ratio", 1.0)):
         errors.append(f"GPS同步超时比例 {gps_stale_ratio:.1%} 过高")
     if vision_latency and _percentile(vision_latency, 0.95) > float(
             limits.get("max_vision_p95_ms", float("inf"))):

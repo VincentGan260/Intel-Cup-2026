@@ -267,7 +267,9 @@ def main() -> None:
     parser.add_argument("--risk-label", choices=["low", "mid", "high"], default=None,
                         help="整段受控场景的初始风险标签，仍需人工复核")
     parser.add_argument("--skip-gps-fix", action="store_true",
-                        help="仅室内调试使用；正式录制默认等待GPS定位")
+                        help="兼容旧命令；GPS已降级为可选传感器，默认不等待定位")
+    parser.add_argument("--wait-gps", action="store_true",
+                        help="显式要求录制前等待GPS定位；GPS失效时不要使用")
     parser.add_argument("--gps-timeout", type=int, default=90)
     parser.add_argument(
         "--enable-vision", action="store_true",
@@ -356,7 +358,7 @@ def main() -> None:
                     "and start with --enable-vision"
                 )
             from src.dashboard.dashboard_recorder import DashboardRecorder
-            if not args.skip_gps_fix:
+            if args.wait_gps and not args.skip_gps_fix:
                 print(f"[GPS] 等待有效定位（最多 {args.gps_timeout}s）...")
                 deadline = time.monotonic() + args.gps_timeout
                 gps_fixed = False
@@ -366,7 +368,7 @@ def main() -> None:
                         break
                 if not gps_fixed:
                     raise RuntimeError(
-                        "GPS未在超时内获得有效定位；室内管线测试可显式使用 --skip-gps-fix")
+                        "GPS未在超时内获得有效定位；当前GPS失效时请不要使用 --wait-gps")
             record_root = _project_root / args.record_output
             record_root.mkdir(parents=True, exist_ok=True)
             free_gb = shutil.disk_usage(record_root).free / (1024 ** 3)
