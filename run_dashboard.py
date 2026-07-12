@@ -774,9 +774,15 @@ def main() -> None:
         print("\nDashboard 已停止")
     finally:
         stop_event.set()
+        # Release the exclusive V4L2 handle first. Video/vision workers only
+        # consume copied cached frames, so keeping /dev/video0 open during the
+        # potentially slow upload shutdown prevents an immediate restart.
+        camera.release()
         # 串口读取和视觉推理都有有界超时；必须等写线程真正退出后再关闭Recorder，
         # 否则可能出现后台线程向已关闭文件写入的竞争。
-        state_thread.join()
+        state_thread.join(timeout=5.0)
+        if state_thread.is_alive():
+            print("[清理] 状态线程未在5秒内退出，将随主进程结束")
         if vision_thread is not None:
             vision_thread.join(timeout=10.0)
         if radar_thread is not None:
@@ -813,7 +819,6 @@ def main() -> None:
             if result.returncode != 0:
                 print(f"[QualityCheck] 录制质量检查未通过 (exit={result.returncode})")
 
-        camera.release()
 
 
 if __name__ == "__main__":
