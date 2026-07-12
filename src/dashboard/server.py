@@ -284,7 +284,7 @@ async def ws_state(websocket: WebSocket) -> None:
 
 
 @app.get("/api/state")
-async def api_state() -> JSONResponse:
+def api_state() -> JSONResponse:
     """返回当前系统状态 JSON。
 
     数据来源：DashboardStateStore（由后台线程持续更新）。
