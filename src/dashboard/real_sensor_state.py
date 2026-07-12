@@ -34,6 +34,7 @@ def build_real_sensor_state(
     risk_model=None,
     classifier=None,
     motor=None,
+    warning_system=None,
     target_stale_ms: float = 500.0,
     radar_communication_watchdog_ms: float = 2000.0,
 ) -> dict:
@@ -41,7 +42,13 @@ def build_real_sensor_state(
 
     # Radar fast path: no GPS or vision operation may precede the decision.
     radar_start_ns = time.monotonic_ns()
-    radar = radar_reader.read_once()
+    if warning_system is not None:
+        radar = radar_reader.get_latest()
+        if radar is None:
+            from src.fusion.data_types import RadarData
+            radar = RadarData(timestamp=time.time(), valid=False)
+    else:
+        radar = radar_reader.read_once()
     radar_end_ns = time.monotonic_ns()
     radar_sample_ns = int(getattr(radar_reader, "last_sample_monotonic_ns", 0) or 0)
     radar_age_ms = ((radar_end_ns - radar_sample_ns) / 1_000_000.0
@@ -50,9 +57,11 @@ def build_real_sensor_state(
                       else radar_communication_watchdog_ms)
     radar_fresh = radar_age_ms is not None and 0.0 <= radar_age_ms <= stale_limit_ms
 
-    decision = risk_rule.decide(radar, radar_fresh=radar_fresh) if risk_rule is not None else None
+    decision = (risk_rule.decide(radar, radar_fresh=radar_fresh)
+                if risk_rule is not None and warning_system is None else None)
     risk_decision_ns = time.monotonic_ns()
-    motor_command_ns = _dispatch_motor(motor, decision) if decision is not None else 0
+    motor_command_ns = (_dispatch_motor(motor, decision)
+                        if decision is not None and warning_system is None else 0)
     radar_to_motor_ms = ((motor_command_ns - radar_sample_ns) / 1_000_000.0
                          if motor_command_ns and radar_sample_ns else None)
 
@@ -107,13 +116,22 @@ def build_real_sensor_state(
         "vision_latency_ms": inference_ms,
         "radar_to_motor_latency_ms": radar_to_motor_ms,
     }
+    warning_snapshot = warning_system.snapshot() if warning_system is not None else None
+    if warning_snapshot is not None:
+        latest_radar_event = warning_snapshot.get("radar_event")
+        dispatch_ns = int(getattr(motor, "last_dispatch_monotonic_ns", 0) or 0)
+        parsed_ns = int(getattr(latest_radar_event, "capture_monotonic_ns", 0) or 0)
+        if dispatch_ns and parsed_ns and dispatch_ns >= parsed_ns:
+            radar_to_motor_ms = (dispatch_ns - parsed_ns) / 1_000_000.0
+            timestamps["radar_to_motor_latency_ms"] = radar_to_motor_ms
+            timestamps["radar_parsed_to_motor_go_latency_ms"] = radar_to_motor_ms
     if recorder is not None:
         recorder.write(
             frame, radar, gps, vision, fusion, inference_ms, timestamps,
             camera_frame_id=camera_frame_id,
             radar_valid=bool(radar.valid) and radar_fresh,
             gps_valid=bool(gps.valid) and gps_fresh,
-            risk_decision=decision,
+            risk_decision=warning_snapshot if warning_snapshot is not None else decision,
         )
 
     targets = [{
@@ -134,7 +152,14 @@ def build_real_sensor_state(
     vision_valid = bool(vision is not None and vision.valid)
     fused_items = None
     fused_weights = {}
-    if risk_model is not None and classifier is not None:
+    if warning_snapshot is not None:
+        fused_score = None
+        level = warning_snapshot["warning_level"]
+        status = warning_snapshot["system_status"]
+        label = ({0: "low", 1: "mid", 2: "high"}.get(level, "unknown"))
+        fused_items = None
+        fused_weights = {}
+    elif risk_model is not None and classifier is not None:
         from copy import copy
         from src.fusion.data_types import FusionInput, IMUData, VisionData
 
@@ -156,23 +181,37 @@ def build_real_sensor_state(
         level = int(decision.level) if decision is not None else 0
         label = decision.label if decision is not None else "disabled"
         status = decision.status if decision is not None else "disabled"
-    reason = (decision.reason if decision is not None else
+    reason = (warning_snapshot["warning_reason"] if warning_snapshot is not None else
+              decision.reason if decision is not None else
               ("adaptive_fusion" if fused_score is not None else "risk_rule_disabled"))
     display_index = (fused_score if fused_score is not None else
-                     (level / 2.0 if status not in {"unknown", "degraded"} else 0.0))
+                     ((level or 0) / 2.0
+                      if level is not None and status != "unknown" else 0.0))
 
+    radar_warning_event = warning_snapshot.get("radar_event") if warning_snapshot else None
+    radar_warning_details = (dict(radar_warning_event.details)
+                             if radar_warning_event is not None else {})
     risk_rule_state = {
         "status": status,
         "reason": reason,
-        "critical_ttc_s": decision.min_path_ttc_s if decision else None,
-        "urgent_ttc_s": decision.urgent_ttc_s if decision else None,
-        "critical_distance_m": decision.critical_distance_m if decision else None,
-        "critical_lateral_m": decision.critical_lateral_m if decision else None,
-        "point_gate_half_width_m": decision.point_gate_half_width_m if decision else None,
-        "path_target_count": decision.path_target_count if decision else 0,
-        "raw_target_count": decision.raw_target_count if decision else 0,
-        "valid_target_count": decision.valid_target_count if decision else 0,
-        "invalid_target_count": decision.invalid_target_count if decision else 0,
+        "critical_ttc_s": (radar_warning_details.get("critical_ttc_s")
+                           if warning_snapshot else decision.min_path_ttc_s if decision else None),
+        "urgent_ttc_s": (radar_warning_details.get("urgent_ttc_s")
+                         if warning_snapshot else decision.urgent_ttc_s if decision else None),
+        "critical_distance_m": (radar_warning_details.get("critical_distance_m")
+                                if warning_snapshot else decision.critical_distance_m if decision else None),
+        "critical_lateral_m": (radar_warning_details.get("critical_lateral_m")
+                               if warning_snapshot else decision.critical_lateral_m if decision else None),
+        "point_gate_half_width_m": (radar_warning_details.get("point_gate_half_width_m")
+                                    if warning_snapshot else decision.point_gate_half_width_m if decision else None),
+        "path_target_count": (radar_warning_details.get("path_target_count", 0)
+                              if warning_snapshot else decision.path_target_count if decision else 0),
+        "raw_target_count": (radar_warning_details.get("raw_target_count", 0)
+                             if warning_snapshot else decision.raw_target_count if decision else 0),
+        "valid_target_count": (radar_warning_details.get("valid_target_count", 0)
+                               if warning_snapshot else decision.valid_target_count if decision else 0),
+        "invalid_target_count": (radar_warning_details.get("invalid_target_count", 0)
+                                 if warning_snapshot else decision.invalid_target_count if decision else 0),
     }
 
     return {
@@ -181,9 +220,23 @@ def build_real_sensor_state(
         "risk_score_semantics": ("adaptive_weighted_fusion" if fused_score is not None
                                  else "ordinal_display_index_not_probability"),
         "risk_level": level,
+        "warning_level": level,
+        "final_level": level,
+        "last_known_level": (warning_snapshot["last_known_level"]
+                             if warning_snapshot else level),
         "risk_label": label,
         "risk_status": status,
         "risk_reason": reason,
+        "warning_reason": reason,
+        "system_status": status,
+        "radar_level": warning_snapshot["radar_level"] if warning_snapshot else level,
+        "vision_level": warning_snapshot["vision_level"] if warning_snapshot else None,
+        "radar_status": warning_snapshot["radar_status"] if warning_snapshot else status,
+        "vision_status": warning_snapshot["vision_status"] if warning_snapshot else "off",
+        "evidence_sources": (list(warning_snapshot["evidence_sources"])
+                             if warning_snapshot else (["radar"] if level else [])),
+        "both_modalities_active": (warning_snapshot["both_modalities_active"]
+                                   if warning_snapshot else False),
         "risk_rule": risk_rule_state,
         "risk_items": {"obs": float(fused_items["R_obs"]) if fused_items else 0.0,
                        "dist": float(fused_items["R_dist"]) if fused_items else 0.0,
@@ -199,7 +252,9 @@ def build_real_sensor_state(
             "gps": "real" if gps_connected else "off",
         },
         "mode": "real-recording" if recorder is not None else "real-sensors",
-        "message": "Adaptive vision/radar/GPS risk fusion active; IMU disabled",
+        "message": ("Parallel radar/vision warning arbitration active; no modality weights"
+                    if warning_snapshot is not None
+                    else "Legacy adaptive risk calculation active"),
         "radar_data": {
             "connected": radar_connected,
             "valid": bool(radar.valid) and radar_fresh,
@@ -228,6 +283,7 @@ def build_real_sensor_state(
             "detection_infer_ms": round(float(getattr(vision, "detection_inference_ms", 0.0)), 2),
             "segmentation_infer_ms": round(float(getattr(vision, "segmentation_inference_ms", 0.0)), 2),
             "radar_to_motor_ms": radar_to_motor_ms,
+            "radar_parsed_to_motor_go_ms": radar_to_motor_ms,
             "vision_runtime": vision_adapter.get_runtime_info() if vision_adapter is not None else {},
         },
         "timestamps": timestamps,

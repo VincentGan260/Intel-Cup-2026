@@ -116,22 +116,60 @@ def _cue_vision_result_cache(vision_adapter) -> None:
         pass
 
 
-def vision_inference_loop(camera_producer, vision_adapter, stop_event: threading.Event) -> None:
+def vision_inference_loop(camera_producer, vision_adapter, stop_event: threading.Event,
+                          warning_system=None, vision_rule=None) -> None:
     """Run slow vision inference independently from state and cloud upload."""
     print("[VisionWorker] asynchronous inference thread started")
     while not stop_event.is_set():
-        frame = camera_producer.get_bgr_frame()
+        frame, capture_ns, frame_id = camera_producer.get_bgr_frame_with_timestamp()
         if frame is None:
             stop_event.wait(0.1)
             continue
         started = time.monotonic()
-        vision_adapter.process(frame)
+        vision_data = vision_adapter.process(frame)
+        completed_ns = time.monotonic_ns()
+        if warning_system is not None and vision_rule is not None:
+            event = vision_rule.evaluate(
+                (vision_adapter.get_latest_vision_result()
+                 if bool(getattr(vision_data, "valid", False)) else None),
+                source_frame_id=frame_id,
+                capture_monotonic_ns=capture_ns,
+                completed_monotonic_ns=completed_ns,
+                sequence=frame_id + 1,
+            )
+            warning_system.publish_vision(event)
         _cue_vision_result_cache(vision_adapter)
         elapsed = time.monotonic() - started
         if elapsed >= 5.0:
             print(f"[VisionWorker] inference completed in {elapsed:.2f}s")
         stop_event.wait(0.05)
     print("[VisionWorker] asynchronous inference thread stopped")
+
+
+def radar_warning_loop(radar_reader, risk_rule, warning_system,
+                       stop_event: threading.Event,
+                       target_stale_ms: float = 500.0,
+                       radar_communication_watchdog_ms: float = 2000.0) -> None:
+    """Read radar independently; urgent events never wait for vision or Dashboard."""
+    print("[RadarWorker] independent warning thread started")
+    sequence = 0
+    while not stop_event.is_set():
+        radar = radar_reader.read_once()
+        completed_ns = time.monotonic_ns()
+        packet_ns = int(getattr(radar_reader, "last_sample_monotonic_ns", 0) or 0)
+        age_ms = ((completed_ns - packet_ns) / 1_000_000.0 if packet_ns else float("inf"))
+        stale_limit_ms = (target_stale_ms if getattr(radar, "targets", [])
+                          else radar_communication_watchdog_ms)
+        fresh = 0.0 <= age_ms <= stale_limit_ms
+        sequence += 1
+        event = risk_rule.evaluate_event(
+            radar, radar_fresh=fresh, sequence=sequence,
+            packet_monotonic_ns=packet_ns,
+            completed_monotonic_ns=completed_ns,
+        )
+        warning_system.publish_radar(event, fast=True)
+        stop_event.wait(0.01)
+    print("[RadarWorker] independent warning thread stopped")
 
 
 def dashboard_state_loop(
@@ -154,6 +192,7 @@ def dashboard_state_loop(
     sync_thresholds=None,
     risk_rule=None,
     motor=None,
+    warning_system=None,
     target_stale_ms: float = 500.0,
     radar_communication_watchdog_ms: float = 2000.0,
     interval: float = 0.2,
@@ -229,6 +268,7 @@ def dashboard_state_loop(
                     risk_model=risk_model,
                     classifier=classifier,
                     motor=motor,
+                    warning_system=warning_system,
                     target_stale_ms=target_stale_ms,
                     radar_communication_watchdog_ms=radar_communication_watchdog_ms,
                 )
@@ -345,12 +385,17 @@ def main() -> None:
                         help="确认真实驱动DRV2605；--motor-mode real时必须提供")
     parser.add_argument("--configured-warning-range-m", type=float, default=None,
                         help="与LD2451 APP最远检测距离一致的比赛工作范围")
-    parser.add_argument("--radar-to-motor-p95-ms", type=float, default=0.469,
-                        help="DK-2500实测雷达到DRV2605 GO的P95延迟，默认0.469 ms")
+    parser.add_argument("--radar-parsed-to-motor-go-p95-ms", "--radar-to-motor-p95-ms",
+                        dest="radar_parsed_to_motor_go_p95_ms", type=float, default=0.469,
+                        help="雷达帧解析完成到DRV2605 GO写入的P95，默认0.469 ms")
     parser.add_argument("--target-stale-ms", type=float, default=500.0,
                         help="有目标100ms周期的5倍工程容错值")
     parser.add_argument("--radar-communication-watchdog-ms", type=float, default=2000.0,
                         help="无目标约1s周期的2倍工程通信看门狗")
+    parser.add_argument("--vision-stale-ms", type=float, default=500.0,
+                        help="视觉事件工程时效窗口")
+    parser.add_argument("--release-hold-ms", type=float, default=500.0,
+                        help="风险降级去抖窗口，只延迟降级")
     args = parser.parse_args()
 
     if args.enable_risk_rule:
@@ -362,9 +407,10 @@ def main() -> None:
             parser.error("--enable-risk-rule requires configuration values: " + ", ".join(missing))
         if args.configured_warning_range_m <= 0:
             parser.error("--configured-warning-range-m must be positive")
-        if args.radar_to_motor_p95_ms < 0:
-            parser.error("radar-to-motor P95 must be non-negative")
-        if args.target_stale_ms <= 0 or args.radar_communication_watchdog_ms <= 0:
+        if args.radar_parsed_to_motor_go_p95_ms < 0:
+            parser.error("parsed-to-motor GO P95 must be non-negative")
+        if (args.target_stale_ms <= 0 or args.radar_communication_watchdog_ms <= 0
+                or args.vision_stale_ms <= 0 or args.release_hold_ms <= 0):
             parser.error("radar watchdog values must be positive")
     if args.motor_mode == "real" and not args.confirm_motor_real:
         parser.error("--motor-mode real requires --confirm-motor-real")
@@ -406,6 +452,8 @@ def main() -> None:
     cloud_sync = None
     competition_risk_rule = None
     motor_controller = None
+    warning_system = None
+    vision_warning_rule = None
 
     if args.dashboard_mode == "real":
         from src.sensors.gps_reader import GPSReader
@@ -436,7 +484,8 @@ def main() -> None:
                 mounting_offset_m=-0.055,
                 mounting_uncertainty_m=0.005,
                 configured_warning_range_m=args.configured_warning_range_m,
-                radar_to_motor_p95_s=args.radar_to_motor_p95_ms / 1000.0,
+                radar_parsed_to_motor_go_p95_s=(
+                    args.radar_parsed_to_motor_go_p95_ms / 1000.0),
                 urgent_reference_s=2.5,
                 max_abs_angle_deg=15.0,
             )
@@ -457,6 +506,15 @@ def main() -> None:
                 )
                 motor_controller.start()
 
+            from src.fusion.warning_system import MultimodalWarningSystem
+            warning_system = MultimodalWarningSystem(
+                motor=motor_controller,
+                target_stale_ms=args.target_stale_ms,
+                vision_stale_ms=args.vision_stale_ms,
+                release_hold_ms=args.release_hold_ms,
+                radar_communication_watchdog_ms=args.radar_communication_watchdog_ms,
+            )
+
         if args.enable_vision:
             from src.fusion.vision_adapter import VisionAdapter
             from src.fusion.vision_radar_fusion import VisionRadarFusion
@@ -466,6 +524,8 @@ def main() -> None:
             vision_init_ok = bool(vision_adapter.vision_enabled)
             if vision_init_ok:
                 synchronizer = VisionRadarFusion()
+                from src.fusion.vision_warning_rule import VisionWarningRule
+                vision_warning_rule = VisionWarningRule()
             else:
                 vision_adapter = None
         if args.record:
@@ -621,14 +681,25 @@ def main() -> None:
     interval = 1.0 / max(args.state_hz, 1)
     stop_event = threading.Event()
     vision_thread = None
+    radar_thread = None
     if args.dashboard_mode == "real" and vision_adapter is not None:
         vision_thread = threading.Thread(
             target=vision_inference_loop,
-            args=(camera, vision_adapter, stop_event),
+            args=(camera, vision_adapter, stop_event, warning_system, vision_warning_rule),
             daemon=True,
             name="dashboard-vision-inference",
         )
         vision_thread.start()
+    if (args.dashboard_mode == "real" and radar_reader is not None
+            and competition_risk_rule is not None and warning_system is not None):
+        radar_thread = threading.Thread(
+            target=radar_warning_loop,
+            args=(radar_reader, competition_risk_rule, warning_system, stop_event,
+                  args.target_stale_ms, args.radar_communication_watchdog_ms),
+            daemon=True,
+            name="dashboard-radar-warning",
+        )
+        radar_thread.start()
     _start_time = time.time()
     state_thread = threading.Thread(
         target=dashboard_state_loop,
@@ -651,6 +722,7 @@ def main() -> None:
             "sync_thresholds": sync_thresholds,
             "risk_rule": competition_risk_rule,
             "motor": motor_controller,
+            "warning_system": warning_system,
             "target_stale_ms": args.target_stale_ms,
             "radar_communication_watchdog_ms": args.radar_communication_watchdog_ms,
             "interval": interval,
@@ -707,6 +779,8 @@ def main() -> None:
         state_thread.join()
         if vision_thread is not None:
             vision_thread.join(timeout=10.0)
+        if radar_thread is not None:
+            radar_thread.join(timeout=5.0)
         if cloud_sync is not None:
             cloud_sync.close()
 

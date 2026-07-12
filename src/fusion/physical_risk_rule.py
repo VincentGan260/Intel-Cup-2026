@@ -5,6 +5,8 @@ import math
 from dataclasses import dataclass
 from typing import Any, Optional
 
+from src.fusion.warning_events import ModalityEvent
+
 
 @dataclass(frozen=True)
 class PhysicalRiskDecision:
@@ -46,7 +48,8 @@ class PhysicalRiskRule:
         mounting_offset_m: float,
         mounting_uncertainty_m: float,
         configured_warning_range_m: float,
-        radar_to_motor_p95_s: float,
+        radar_to_motor_p95_s: float | None = None,
+        radar_parsed_to_motor_go_p95_s: float | None = None,
         urgent_reference_s: float = 2.5,
         min_valid_distance_m: float = 0.01,
         max_valid_distance_m: float = 100.0,
@@ -54,8 +57,13 @@ class PhysicalRiskRule:
         min_confidence: float | None = None,
     ) -> None:
         positive = (body_width_m, configured_warning_range_m, urgent_reference_s)
+        parsed_latency = (radar_parsed_to_motor_go_p95_s
+                          if radar_parsed_to_motor_go_p95_s is not None
+                          else radar_to_motor_p95_s)
+        if parsed_latency is None:
+            raise ValueError("parsed-to-motor GO P95 latency is required")
         nonnegative = (point_gate_lateral_margin_m, mounting_uncertainty_m,
-                       radar_to_motor_p95_s, min_valid_distance_m)
+                       parsed_latency, min_valid_distance_m)
         if any(value <= 0 for value in positive):
             raise ValueError("body width, configured range and urgency reference must be positive")
         if any(value < 0 for value in nonnegative):
@@ -70,7 +78,7 @@ class PhysicalRiskRule:
         self.mounting_offset_m = mounting_offset_m
         self.mounting_uncertainty_m = mounting_uncertainty_m
         self.configured_warning_range_m = configured_warning_range_m
-        self.radar_to_motor_p95_s = radar_to_motor_p95_s
+        self.radar_parsed_to_motor_go_p95_s = parsed_latency
         self.urgent_reference_s = urgent_reference_s
         self.min_valid_distance_m = min_valid_distance_m
         self.max_valid_distance_m = max_valid_distance_m
@@ -79,7 +87,12 @@ class PhysicalRiskRule:
 
     @property
     def urgent_ttc_s(self) -> float:
-        return self.urgent_reference_s + self.radar_to_motor_p95_s
+        return self.urgent_reference_s + self.radar_parsed_to_motor_go_p95_s
+
+    @property
+    def radar_to_motor_p95_s(self) -> float:
+        """Backward-compatible alias; the actual start is frame parse completion."""
+        return self.radar_parsed_to_motor_go_p95_s
 
     @property
     def point_gate_half_width_m(self) -> float:
@@ -179,4 +192,30 @@ class PhysicalRiskRule:
             1, "mid", "warning", "approaching_target_in_configured_point_gate",
             raw=len(targets), valid=valid_count, invalid=invalid_count,
             candidates=candidates,
+        )
+
+    def evaluate_event(self, radar: Any, *, radar_fresh: bool, sequence: int,
+                       packet_monotonic_ns: int,
+                       completed_monotonic_ns: int | None = None) -> ModalityEvent:
+        completed_ns = completed_monotonic_ns or __import__("time").monotonic_ns()
+        decision = self.decide(radar, radar_fresh=radar_fresh)
+        usable = decision.status not in {"unknown", "degraded"}
+        level = decision.level if usable else None
+        return ModalityEvent(
+            source="radar", source_id=str(sequence), sequence=sequence,
+            capture_monotonic_ns=packet_monotonic_ns,
+            completed_monotonic_ns=completed_ns,
+            usable=usable, level=level, reason=decision.reason,
+            status=("usable" if usable else decision.status),
+            details={
+                "critical_ttc_s": decision.min_path_ttc_s,
+                "urgent_ttc_s": decision.urgent_ttc_s,
+                "critical_distance_m": decision.critical_distance_m,
+                "critical_lateral_m": decision.critical_lateral_m,
+                "point_gate_half_width_m": decision.point_gate_half_width_m,
+                "path_target_count": decision.path_target_count,
+                "raw_target_count": decision.raw_target_count,
+                "valid_target_count": decision.valid_target_count,
+                "invalid_target_count": decision.invalid_target_count,
+            },
         )

@@ -859,13 +859,13 @@
         scoreEl.classList.remove("pulse"); void scoreEl.offsetWidth; scoreEl.classList.add("pulse");
         badge.style.transform="scale(0.85)"; badge.style.opacity="0";
         setTimeout(function(){
-          if(riskStatus==="unknown"||riskStatus==="degraded"){
-            badge.textContent=riskStatus==="degraded"?"感知降级":"风险不可判定";
+          if(riskStatus==="unknown"||s.risk_level==null){
+            badge.textContent="风险不可判定";
             badge.className="risk-level-badge low";bar.style.background="#64748b";
           }
-          else if(s.risk_level===0){badge.textContent="低风险";badge.className="risk-level-badge low";bar.style.background="var(--green)";}
-          else if(s.risk_level===1){badge.textContent="中风险";badge.className="risk-level-badge med";bar.style.background="var(--orange)";}
-          else{badge.textContent="高风险";badge.className="risk-level-badge high";bar.style.background="var(--red)";}
+          else if(s.risk_level===0){badge.textContent=riskStatus==="degraded"?"未触发 · 降级":"低风险";badge.className="risk-level-badge low";bar.style.background="var(--green)";}
+          else if(s.risk_level===1){badge.textContent=riskStatus==="degraded"?"中风险 · 降级":"中风险";badge.className="risk-level-badge med";bar.style.background="var(--orange)";}
+          else{badge.textContent=riskStatus==="degraded"?"高风险 · 降级":"高风险";badge.className="risk-level-badge high";bar.style.background="var(--red)";}
           badge.style.transform="scale(1)";badge.style.opacity="1";
         },150);
         prevRiskLevel = riskStateKey;

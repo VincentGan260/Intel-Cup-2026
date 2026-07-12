@@ -51,6 +51,10 @@ def build_ride_payload(state: dict, device_id: str) -> dict:
         "drivable_area_ratio": _finite_optional(vision.get("drivable_area_ratio")) if vision_valid else None,
         "risk_score": min(1.0, max(0.0, float(state.get("risk_score", 0.0) or 0.0))),
         "risk_level": min(2, max(0, int(state.get("risk_level", 0) or 0))),
+        "system_status": str(state.get("system_status", "unknown")),
+        "warning_reason": str(state.get("warning_reason", "")),
+        "radar_level": state.get("radar_level"),
+        "vision_level": state.get("vision_level"),
     }
 
 
