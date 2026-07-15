@@ -1,6 +1,13 @@
 # 多模态数据采集指南
 
-## 0. 推荐：一键实地测试（相机 + LD2451 + GPS，无IMU）
+## 0. 推荐：一键实地测试（相机 + LD2451 + WHEELTEC G60，无IMU）
+
+G60通过Type-C USB连接，配置保持`port: auto`，Reader会按USB VID:PID
+`1a86:55d4`自动识别。单独验证G60可运行：
+
+```bash
+python scripts/test_g60_gps.py --duration 30
+```
 
 只做设备预检：
 

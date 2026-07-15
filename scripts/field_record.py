@@ -46,6 +46,19 @@ def serial_port_exists(port: str) -> bool:
 def preflight(profile: str, ports: dict[str, Any], camera: dict[str, Any], check_camera: bool = True) -> list[str]:
     problems: list[str] = []
     selected = {name: str(ports.get(name, {}).get("port", "")).strip() for name in ("gps", "radar")}
+    if selected["gps"].lower() == "auto":
+        sys.path.insert(0, str(PROJECT_ROOT))
+        from src.sensors.gps_reader import _find_g60_ports
+
+        g60_ports = _find_g60_ports()
+        if len(g60_ports) == 1:
+            selected["gps"] = g60_ports[0]
+        elif not g60_ports:
+            selected["gps"] = ""
+            problems.append("G60 USB未连接 (VID:PID 1a86:55d4)")
+        else:
+            selected["gps"] = ""
+            problems.append(f"检测到多个G60，请在配置中指定: {g60_ports}")
     if any(not port for port in selected.values()):
         problems.append("GPS或雷达串口配置为空")
     if len({p.lower() for p in selected.values() if p}) != len(selected):
