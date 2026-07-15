@@ -166,6 +166,10 @@
     background: var(--red-subtle);
     color: var(--red);
   }
+  .header .status-pill.stale {
+    background: rgba(255,149,0,0.14);
+    color: var(--orange);
+  }
   .header .status-pill-dot {
     width: 6px; height: 6px;
     border-radius: 50%;
@@ -262,6 +266,12 @@
   }
   .video-mode-btn:hover { opacity: 0.85; transform: scale(1.02); }
   .video-mode-btn:active { transform: scale(0.98); }
+  .video-stream-status {
+    color: rgba(255,255,255,0.72);
+    font-family: var(--font-mono);
+  }
+  .video-stream-status.warning { color: #ffb340; }
+  .video-stream-status.error { color: #ff6961; }
 
   /* ── Panel Wrapper: Colorful backdrop for glass refraction ── */
   .panel-wrapper {
@@ -544,58 +554,6 @@
     transition: opacity 0.3s var(--ease-apple);
   }
 
-  /* ── Error Overlay: Liquid Glass ── */
-  .error-overlay {
-    display: none;
-    position: fixed;
-    inset: 0;
-    background: rgba(255,255,255,0.35);
-    backdrop-filter: blur(14px) saturate(130%);
-    -webkit-backdrop-filter: blur(14px) saturate(130%);
-    z-index: 999;
-    align-items: center;
-    justify-content: center;
-  }
-  .error-overlay.show {
-    display: flex;
-    animation: overlayFadeIn 0.35s var(--ease-apple) both;
-  }
-  .error-box {
-    position: relative;
-    background: rgba(255,255,255,0.45);
-    backdrop-filter: blur(14px) saturate(130%);
-    -webkit-backdrop-filter: blur(14px) saturate(130%);
-    border: none;
-    border-radius: 20px;
-    padding: 40px 48px;
-    text-align: center;
-    box-shadow: 0 32px 80px -16px rgba(0,0,0,0.12);
-    animation: overlayBoxScale 0.4s var(--ease-apple) 0.1s both;
-    overflow: hidden;
-  }
-  .error-box::before {
-    content: "";
-    position: absolute;
-    inset: 0;
-    border-radius: 20px;
-    pointer-events: none;
-    box-shadow:
-      inset 1px 1px 0px 0px rgba(255,255,255,0.6),
-      inset -1px -1px 0px 0px rgba(255,255,255,0.4);
-    background:
-      radial-gradient(circle at top left, rgba(255,255,255,0.25), transparent 30%),
-      radial-gradient(circle at bottom right, rgba(255,255,255,0.1), transparent 25%);
-  }
-  .error-box h2 {
-    color: var(--red);
-    font-size: 20px; font-weight: 600;
-    letter-spacing: -0.01em;
-    margin-bottom: 8px;
-  }
-  .error-box p {
-    color: var(--text-secondary);
-    font-size: 14px; line-height: 1.5;
-  }
 </style>
 </head>
 <body>
@@ -629,6 +587,7 @@
       <button id="btn-video-mode" class="video-mode-btn active" onclick="toggleVideoMode()">
         视觉增强
       </button>
+      <span id="video-status" class="video-stream-status">视频连接中</span>
     </div>
   </div>
 
@@ -695,20 +654,25 @@
 
 </div>
 
-<!-- Error Overlay -->
-<div class="error-overlay" id="error-overlay">
-  <div class="error-box">
-    <h2>后端连接异常</h2>
-    <p>无法获取系统状态数据，请检查 Dashboard 服务是否正常运行。</p>
-  </div>
-</div>
-
 <script>
 (function () {
   const $ = (id) => document.getElementById(id);
   let errorCount = 0;
   const MAX_ERRORS = 3;
   let prevRiskLevel = -1;
+  let overlayEnabled = false;
+  let stateSocket = null;
+  let wsConnected = false;
+  let stateReconnectTimer = null;
+  let lastStateAt = 0;
+  let lastStateVersion = -1;
+  let stateStaleHandled = false;
+  const startedAt = Date.now();
+  const STATE_STALE_MS = 3000;
+  let currentVideoPath = "/video_annotated_feed";
+  let videoReconnectTimer = null;
+  let videoReconnectAttempt = 0;
+  let lastVideoRestartAt = 0;
 
   const sensorNames = ["camera", "vision", "radar", "gps"];
   const sensorLabels = {"camera":"摄像头","vision":"视觉","radar":"雷达","gps":"GPS"};
@@ -835,22 +799,108 @@
     });
   }
 
+  function clearOverlay() {
+    const canvas = $("overlay-canvas");
+    if (!canvas) return;
+    const ctx = canvas.getContext("2d");
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+  }
+
+  function setConnectionStatus(kind, text) {
+    const pill = $("conn-pill");
+    pill.classList.toggle("offline", kind === "offline");
+    pill.classList.toggle("stale", kind === "stale");
+    $("conn-text").textContent = text;
+  }
+
+  function setVideoStatus(kind, text) {
+    const el = $("video-status");
+    el.className = "video-stream-status" + (kind ? " " + kind : "");
+    el.textContent = text;
+  }
+
+  function setVideoSource(path) {
+    currentVideoPath = path;
+    lastVideoRestartAt = Date.now();
+    $("video-img").src = path + "?t=" + lastVideoRestartAt;
+  }
+
+  function scheduleVideoReconnect() {
+    if (videoReconnectTimer !== null) return;
+    const delays = [1000, 2000, 5000];
+    const delay = delays[Math.min(videoReconnectAttempt, delays.length - 1)];
+    videoReconnectAttempt++;
+    setVideoStatus("warning", "视频重连中");
+    videoReconnectTimer = setTimeout(function(){
+      videoReconnectTimer = null;
+      setVideoSource(currentVideoPath);
+    }, delay);
+  }
+
   function toggleVideoMode() {
-    var btn=$('btn-video-mode'),img=$('video-img');
-    if(btn.classList.contains('active')){btn.classList.remove('active');btn.textContent='原始画面';img.src='/video_feed';}
-    else{btn.classList.add('active');btn.textContent='视觉增强';img.src='/video_annotated_feed';}
+    var btn=$("btn-video-mode"), img=$("video-img");
+    if(btn.classList.contains("active")){
+      btn.classList.remove("active");
+      btn.textContent="原始画面 + 前端叠加";
+      overlayEnabled = true;
+      setVideoSource("/video_feed");
+    } else {
+      btn.classList.add("active");
+      btn.textContent="视觉增强";
+      overlayEnabled = false;
+      clearOverlay();
+      setVideoSource("/video_annotated_feed");
+    }
   }
   window.toggleVideoMode = toggleVideoMode;
 
-  async function update() {
-    try {
-      const resp = await fetch("/api/state");
-      if (!resp.ok) throw new Error("HTTP "+resp.status);
-      const s = await resp.json();
+  function finiteNumber(value, fallback) {
+    return typeof value === "number" && Number.isFinite(value) ? value : fallback;
+  }
 
+  function normalizeState(raw) {
+    const source = raw && typeof raw === "object" ? raw : {};
+    const items = source.risk_items && typeof source.risk_items === "object" ? source.risk_items : {};
+    const radar = source.radar_data && typeof source.radar_data === "object" ? source.radar_data : {};
+    const gps = source.gps_data && typeof source.gps_data === "object" ? source.gps_data : {};
+    const vision = source.vision_details && typeof source.vision_details === "object" ? source.vision_details : {};
+    const runtime = source.runtime && typeof source.runtime === "object" ? source.runtime : {};
+    const latitude = finiteNumber(gps.latitude, null);
+    const longitude = finiteNumber(gps.longitude, null);
+    return Object.assign({}, source, {
+      risk_score: finiteNumber(source.risk_score, null),
+      risk_items: {
+        obs: Math.max(0, Math.min(1, finiteNumber(items.obs, 0))),
+        dist: Math.max(0, Math.min(1, finiteNumber(items.dist, 0))),
+        speed: Math.max(0, Math.min(1, finiteNumber(items.speed, 0)))
+      },
+      sensors: source.sensors && typeof source.sensors === "object" ? source.sensors : {},
+      radar_data: Object.assign({}, radar, {
+        target_count: finiteNumber(radar.target_count, null),
+        nearest_distance_m: finiteNumber(radar.nearest_distance_m, -1),
+        min_ttc_s: finiteNumber(radar.min_ttc_s, -1)
+      }),
+      gps_data: Object.assign({}, gps, {
+        valid: Boolean(gps.valid) && latitude !== null && longitude !== null,
+        latitude: latitude,
+        longitude: longitude,
+        speed_kmh: finiteNumber(gps.speed_kmh, null)
+      }),
+      vision_details: Object.assign({}, vision, {
+        objects: Array.isArray(vision.objects) ? vision.objects : []
+      }),
+      runtime: runtime
+    });
+  }
+
+  function renderState(rawState) {
+    try {
+      const s = normalizeState(rawState);
+      const riskScoreValid = s.risk_score !== null;
+      const riskScore = riskScoreValid ? Math.max(0, Math.min(1, s.risk_score)) : 0;
       const scoreEl = $("risk-score");
-      scoreEl.textContent = s.risk_score.toFixed(2);
-      const pct = (s.risk_score*100).toFixed(1)+"%";
+      scoreEl.textContent = riskScoreValid ? riskScore.toFixed(2) : "--";
+      const pct = (riskScore*100).toFixed(1)+"%";
 
       const badge=$("risk-badge"),bar=$("risk-bar");
       const riskStatus=s.risk_status||"normal";
@@ -902,6 +952,8 @@
         else{el.textContent=String(vd[k]!=null?vd[k]:"-");}
         if(visionFieldBars[k]){const bar=$(vdIds[k+"_bar"]);if(bar&&typeof vd[k]==="number"){bar.style.width=(vd[k]*100).toFixed(1)+"%";}}
       });
+      if (overlayEnabled) drawOverlay(vd);
+      else clearOverlay();
 
       const rt=s.runtime||{};
       runtimeFields.forEach(k=>{
@@ -920,23 +972,113 @@
       if(s.message){const msgEl=$("sys-msg");msgEl.style.opacity="0";setTimeout(function(){msgEl.textContent=s.message;msgEl.style.opacity="1";},150);}
 
       errorCount=0;
-      $("conn-pill").classList.remove("offline");
-      $("conn-dot").className="status-pill-dot";
-      $("conn-text").textContent="已连接";
-      $("error-overlay").classList.remove("show");
     } catch(e) {
-      errorCount++;
-      if(errorCount>=MAX_ERRORS){
-        $("conn-pill").classList.add("offline");
-        $("conn-dot").className="status-pill-dot";
-        $("conn-text").textContent="连接异常";
-        $("error-overlay").classList.add("show");
+      handleStateError("数据格式异常");
+    }
+  }
+
+  function handleIncomingState(state) {
+    const meta = state && state._dashboard && typeof state._dashboard === "object" ? state._dashboard : {};
+    const version = finiteNumber(meta.version, null);
+    const isFresh = version === null || version !== lastStateVersion;
+    if (isFresh) {
+      if (version !== null) lastStateVersion = version;
+      lastStateAt = Date.now();
+      stateStaleHandled = false;
+      setConnectionStatus("online", "实时连接");
+    }
+    renderState(state);
+  }
+
+  async function pollOnce() {
+    try {
+      const resp = await fetch("/api/state", {cache: "no-store"});
+      if (!resp.ok) throw new Error("HTTP " + resp.status);
+      handleIncomingState(await resp.json());
+    } catch (e) {
+      handleStateError("正在重连");
+    }
+  }
+
+  function handleStateError(message) {
+    errorCount++;
+    if(errorCount>=MAX_ERRORS){
+      setConnectionStatus("offline", message || "连接异常");
+    }
+  }
+
+  function connectStateSocket() {
+    try {
+      const proto = location.protocol === "https:" ? "wss" : "ws";
+      stateSocket = new WebSocket(proto + "://" + location.host + "/ws/state");
+      stateSocket.onopen = function(){ wsConnected = true; errorCount = 0; };
+      stateSocket.onmessage = function(ev){
+        try { handleIncomingState(JSON.parse(ev.data)); }
+        catch (e) { handleStateError("数据格式异常"); }
+      };
+      stateSocket.onerror = function(){ wsConnected = false; };
+      stateSocket.onclose = function(){
+        wsConnected = false;
+        if (stateReconnectTimer === null) {
+          stateReconnectTimer = setTimeout(function(){
+            stateReconnectTimer = null;
+            connectStateSocket();
+          }, 1000);
+        }
+      };
+    } catch (e) {
+      wsConnected = false;
+      if (stateReconnectTimer === null) {
+        stateReconnectTimer = setTimeout(function(){
+          stateReconnectTimer = null;
+          connectStateSocket();
+        }, 1000);
       }
     }
   }
 
-  update();
-  setInterval(update, 500);
+  function checkStateFreshness() {
+    const reference = lastStateAt || startedAt;
+    if (Date.now() - reference <= STATE_STALE_MS || stateStaleHandled) return;
+    stateStaleHandled = true;
+    wsConnected = false;
+    setConnectionStatus("stale", "数据延迟，正在恢复");
+    if (stateSocket && stateSocket.readyState === WebSocket.OPEN) stateSocket.close();
+    pollOnce();
+  }
+
+  async function checkSystemHealth() {
+    try {
+      const resp = await fetch("/api/health", {cache: "no-store"});
+      if (!resp.ok) return;
+      const health = await resp.json();
+      const frameAge = finiteNumber(health.video_frame_age_ms, null);
+      if (health.camera_available === false) {
+        setVideoStatus("warning", "摄像头不可用");
+      } else if (frameAge !== null && frameAge > 3000) {
+        setVideoStatus("error", "视频画面停滞");
+        if (Date.now() - lastVideoRestartAt > 5000) scheduleVideoReconnect();
+      } else if (frameAge !== null) {
+        videoReconnectAttempt = 0;
+        setVideoStatus("", "视频实时");
+      }
+    } catch (e) {
+      // 状态看门狗负责后端离线提示，避免视频状态重复报警。
+    }
+  }
+
+  const videoImg = $("video-img");
+  videoImg.addEventListener("error", scheduleVideoReconnect);
+  videoImg.addEventListener("load", function(){
+    videoReconnectAttempt = 0;
+    setVideoStatus("", "视频实时");
+  });
+  connectStateSocket();
+  pollOnce();
+  setInterval(function(){ if(!wsConnected) pollOnce(); }, 1000);
+  setInterval(checkStateFreshness, 500);
+  setInterval(checkSystemHealth, 2000);
+  checkSystemHealth();
 })();
 </script>
 </body>

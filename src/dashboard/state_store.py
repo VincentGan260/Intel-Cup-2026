@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import copy
 import threading
+import time
 from typing import Any, Dict
 
 
@@ -49,12 +50,14 @@ class DashboardStateStore:
             "message": "dashboard initialized",
         }
         self._version = 0
+        self._updated_monotonic = time.monotonic()
 
     def set_state(self, state: dict) -> None:
         """写入完整状态（线程安全），版本号递增。"""
         with self._lock:
             self._state = state
             self._version += 1
+            self._updated_monotonic = time.monotonic()
 
     def get_state(self) -> dict:
         """读取状态副本（线程安全）。
@@ -68,3 +71,9 @@ class DashboardStateStore:
         """读取当前版本号，用于 WebSocket 推送判断。"""
         with self._lock:
             return self._version
+
+    def get_snapshot(self) -> tuple[dict, int, float]:
+        """原子读取状态、版本号和状态年龄（毫秒）。"""
+        with self._lock:
+            age_ms = max(0.0, (time.monotonic() - self._updated_monotonic) * 1000.0)
+            return copy.deepcopy(self._state), self._version, age_ms

@@ -39,6 +39,8 @@ _vr_lock = threading.Lock()
 # ── 共享帧抓取器（单摄像头 → 多消费者，防止帧被瓜分） ──
 _shared_jpeg: Optional[bytes] = None
 _shared_bgr: Optional[np.ndarray] = None
+_shared_frame_id = -1
+_shared_capture_ns = 0
 _shared_lock = threading.Lock()
 _grabber_alive = False
 _grabber_thread: Optional[threading.Thread] = None
@@ -56,17 +58,25 @@ def _ensure_grabber_started() -> None:
 
 def _grab_loop() -> None:
     """后台持续抓帧，缓存最新 JPEG 和 BGR，供所有视频端点消费。"""
-    global _shared_jpeg, _shared_bgr
+    global _shared_jpeg, _shared_bgr, _shared_frame_id, _shared_capture_ns
     import cv2
     while _grabber_alive:
         jpeg_bytes = b""
         bgr = None
+        capture_ns = 0
+        frame_id = -1
         if _camera is not None:
             try:
-                jpeg_bytes = _camera.get_jpeg_frame()
-                if jpeg_bytes:
-                    buf = np.frombuffer(jpeg_bytes, np.uint8)
-                    bgr = cv2.imdecode(buf, cv2.IMREAD_COLOR)
+                bgr, capture_ns, frame_id = _camera.get_bgr_frame_with_timestamp()
+                if bgr is not None and frame_id != _shared_frame_id:
+                    ret, enc = cv2.imencode(".jpg", bgr, [cv2.IMWRITE_JPEG_QUALITY, 80])
+                    if ret:
+                        jpeg_bytes = enc.tobytes()
+                elif bgr is None:
+                    jpeg_bytes = _camera.get_jpeg_frame()
+                    if jpeg_bytes:
+                        buf = np.frombuffer(jpeg_bytes, np.uint8)
+                        bgr = cv2.imdecode(buf, cv2.IMREAD_COLOR)
             except Exception:
                 pass
         with _shared_lock:
@@ -74,7 +84,9 @@ def _grab_loop() -> None:
                 _shared_jpeg = jpeg_bytes
             if bgr is not None:
                 _shared_bgr = bgr
-        time.sleep(0.03)  # ~30 FPS
+                _shared_frame_id = frame_id
+                _shared_capture_ns = capture_ns
+        time.sleep(0.05)  # ~20 FPS，兼顾演示流畅度与端侧负载
 
 
 def _get_shared_jpeg() -> bytes:
@@ -85,6 +97,24 @@ def _get_shared_jpeg() -> bytes:
 def _get_shared_bgr() -> Optional[np.ndarray]:
     with _shared_lock:
         return _shared_bgr
+
+
+def _get_video_frame_age_ms() -> Optional[float]:
+    with _shared_lock:
+        if _shared_capture_ns <= 0:
+            return None
+        return max(0.0, (time.monotonic_ns() - _shared_capture_ns) / 1_000_000.0)
+
+
+def _get_state_payload() -> dict:
+    if _state_store is None:
+        return {}
+    state, version, age_ms = _state_store.get_snapshot()
+    state["_dashboard"] = {
+        "version": version,
+        "state_age_ms": round(age_ms, 1),
+    }
+    return state
 
 # ── FastAPI 应用 ──
 app = FastAPI(title="Rider Warning Dashboard", version="0.1.0")
@@ -146,7 +176,7 @@ async def video_annotated_feed():
     """视觉增强 MJPEG 视频流。
 
     每帧直接读取摄像头 → 从缓存 VisionResult 实时绘制检测框/分割 mask → JPEG 编码。
-    绘制仅需 ~2ms，视频保持摄像头原生帧率；Vision 推理由后台状态线程异步完成。
+    视频以约 20 FPS 输出；Vision 推理由后台状态线程异步完成。
     """
 
     def _draw_on_frame(bgr: np.ndarray, vr) -> np.ndarray:
@@ -237,7 +267,7 @@ async def video_annotated_feed():
                     + frame_bytes
                     + b"\r\n"
                 )
-                time.sleep(0.03)  # ~30 FPS
+                time.sleep(0.05)  # ~20 FPS，避免视频编码挤占状态与推理线程
         except GeneratorExit:
             pass  # 客户端断开，正常退出
 
@@ -264,7 +294,7 @@ async def ws_state(websocket: WebSocket) -> None:
             if _state_store is not None:
                 new_version = _state_store.get_version()
                 if new_version != last_version:
-                    current_state = _state_store.get_state()
+                    current_state = _get_state_payload()
 
             if current_state is not None:
                 await websocket.send_json(current_state)
@@ -290,7 +320,7 @@ def api_state() -> JSONResponse:
     数据来源：DashboardStateStore（由后台线程持续更新）。
     """
     if _state_store is not None:
-        return JSONResponse(content=_state_store.get_state())
+        return JSONResponse(content=_get_state_payload())
     # 回退：state_store 未注入时返回空状态
     return JSONResponse(
         content={
@@ -310,11 +340,20 @@ def api_state() -> JSONResponse:
 @app.get("/api/health")
 async def api_health() -> JSONResponse:
     """服务健康检查。"""
+    state_age_ms = None
+    state_version = None
+    if _state_store is not None:
+        _, state_version, state_age_ms = _state_store.get_snapshot()
     return JSONResponse(
         content={
             "status": "ok",
             "camera_available": _camera is not None and _camera.is_available if _camera else False,
             "state_store_attached": _state_store is not None,
+            "state_version": state_version,
+            "state_age_ms": round(state_age_ms, 1) if state_age_ms is not None else None,
+            "video_frame_age_ms": (
+                round(frame_age, 1) if (frame_age := _get_video_frame_age_ms()) is not None else None
+            ),
             "version": "0.1.0",
         }
     )
