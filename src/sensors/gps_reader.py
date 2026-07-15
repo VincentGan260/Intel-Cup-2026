@@ -1,12 +1,13 @@
-"""GPS 读取器封装。
+"""WHEELTEC G60 GPS 读取器封装。
 
 从早期GPS测试脚本提取核心 NMEA 解析逻辑，不直接 import 原脚本。
 支持 real / mock 两种模式。
 
 real 模式：
-  - 从串口读取 NMEA 报文（GPGGA/GNGGA + GPRMC/GNRMC）
+  - 自动识别 G60 USB 串口（VID:PID 1a86:55d4）
+  - 从串口读取 NMEA 报文（GGA + RMC，兼容 GN/GP/BD/GL talker）
   - 使用手动 NMEA 解析（不依赖 pynmea2），减少外部依赖
-  - 端口/波特率从 configs/sensor_ports.yaml 读取
+  - 串口默认为 auto，波特率从 configs/sensor_ports.yaml 读取
 
 mock 模式：
   - 返回模拟 GPS 数据，速度在 0~25 km/h 之间随机变化
@@ -23,6 +24,23 @@ from src.fusion.data_types import GPSData, now, gps_kmh_to_mps
 from src.sensors.sensor_base import BaseSensorReader
 
 # — NMEA 简单解析器（不依赖 pynmea2） —
+
+G60_USB_VID = 0x1A86
+G60_USB_PID = 0x55D4
+
+
+def _find_g60_ports() -> list[str]:
+    """通过 USB VID/PID 查找 G60，兼容 Linux 和 Windows。"""
+    try:
+        from serial.tools import list_ports
+
+        return sorted(
+            port.device
+            for port in list_ports.comports()
+            if port.vid == G60_USB_VID and port.pid == G60_USB_PID
+        )
+    except (ImportError, OSError):
+        return []
 
 
 def _nmea_checksum_valid(sentence: str) -> bool:
@@ -48,6 +66,9 @@ def _parse_nmea_gga(sentence: str) -> Optional[dict]:
     try:
         parts = sentence.split(",")
         if len(parts) < 10:
+            return None
+
+        if parts[0].lstrip("$")[-3:] != "GGA":
             return None
 
         # 纬度: ddmm.mmmm → dd.dddd
@@ -96,6 +117,8 @@ def _parse_nmea_rmc(sentence: str) -> Optional[dict]:
         parts = sentence.split(",")
         if len(parts) < 8:
             return None
+        if parts[0].lstrip("$")[-3:] != "RMC":
+            return None
         status = parts[2]
         speed_kn = float(parts[7]) if parts[7] else 0.0
         return {"speed_kn": speed_kn, "status": status}
@@ -113,6 +136,8 @@ class GPSReader(BaseSensorReader):
     ) -> None:
         super().__init__(mode, config)
         self._serial: Optional["serial.Serial"] = None  # noqa: F821
+        self._active_port: str = ""
+        self._rx_buffer = bytearray()
         self._mock_speed: float = 0.0
         self._mock_lat: float = 31.2304
         self._mock_lon: float = 121.4737
@@ -135,12 +160,47 @@ class GPSReader(BaseSensorReader):
         if self.is_real:
             import serial as _serial
 
-            port = self.config.get("port", "/dev/ttyGPSNEO")
-            baudrate = self.config.get("baudrate", 9600)
-            timeout = self.config.get("timeout", 1.0)
+            configured_port = str(self.config.get("port", "auto")).strip()
+            detected_ports = _find_g60_ports()
+
+            if not detected_ports:
+                self.last_error = "未找到 G60 USB 设备 (VID:PID 1a86:55d4)"
+                print(f"[GPSReader] {self.last_error}")
+                return
+            if configured_port.lower() == "auto":
+                if len(detected_ports) != 1:
+                    self.last_error = (
+                        "检测到多个 G60 串口: " + ", ".join(detected_ports)
+                        + "；请在配置中指定 port"
+                    )
+                    print(f"[GPSReader] {self.last_error}")
+                    return
+                port = detected_ports[0]
+            else:
+                ports_by_name = {item.lower(): item for item in detected_ports}
+                port = ports_by_name.get(configured_port.lower(), "")
+                if not port:
+                    self.last_error = (
+                        f"配置端口 {configured_port} 不是已识别的 G60；"
+                        f"当前 G60: {', '.join(detected_ports)}"
+                    )
+                    print(f"[GPSReader] {self.last_error}")
+                    return
+
+            baudrate = int(self.config.get("baudrate", 9600))
 
             try:
-                self._serial = _serial.Serial(port, baudrate, timeout=timeout)
+                # Dashboard 不能被串口超时阻塞；完整行由 _rx_buffer 拼接。
+                self._serial = _serial.Serial(port, baudrate, timeout=0)
+                self._serial.reset_input_buffer()
+                self._active_port = port
+                self._rx_buffer.clear()
+                self._latest_gga = None
+                self._latest_rmc = None
+                self._gga_received_mono = 0.0
+                self._rmc_received_mono = 0.0
+                self._gga_received_wall = 0.0
+                self._rmc_received_wall = 0.0
                 self.bytes_received = 0
                 self.valid_sentence_count = 0
                 self._bad_nmea_count = 0
@@ -151,6 +211,7 @@ class GPSReader(BaseSensorReader):
             except Exception as e:
                 print(f"[GPSReader] 串口打开失败: {e}")
                 self._serial = None
+                self._active_port = ""
                 self.last_error = str(e)
         else:
             self._mock_speed = 12.0  # 初始速度 12 km/h
@@ -164,6 +225,8 @@ class GPSReader(BaseSensorReader):
             except Exception:
                 pass
             self._serial = None
+            self._active_port = ""
+            self._rx_buffer.clear()
         else:
             print("[GPSReader] 已停止")
 
@@ -179,6 +242,7 @@ class GPSReader(BaseSensorReader):
     def get_diagnostics(self) -> dict:
         current_mono = time.monotonic()
         return {
+            "port": self._active_port,
             "bytes_received": int(self.bytes_received),
             "valid_sentence_count": int(self.valid_sentence_count),
             "bad_sentence_count": int(self._bad_nmea_count),
@@ -202,21 +266,23 @@ class GPSReader(BaseSensorReader):
             if self._serial is None or not self._serial.is_open:
                 return gps
 
-            # Dashboard must never wait up to 20 serial timeouts. Consume only
-            # bytes already available and enforce a small per-call budget.
-            deadline = time.monotonic() + 0.10
-            for _ in range(20):
-                if time.monotonic() >= deadline or self._serial.in_waiting <= 0:
-                    break
-                raw = self._serial.readline()
-                if not raw:
-                    break
+            # 一次只读当前已到达的字节，永不等待串口 timeout。
+            available = min(int(self._serial.in_waiting), 4096)
+            if available > 0:
+                raw = self._serial.read(available)
                 self.bytes_received += len(raw)
                 self.last_byte_monotonic_ns = time.monotonic_ns()
-                try:
-                    line = raw.decode("ascii", errors="ignore").strip()
-                except Exception:
-                    continue
+                self._rx_buffer.extend(raw)
+
+            # 异常数据不得让缓冲区无限增长。
+            if len(self._rx_buffer) > 16384:
+                last_start = self._rx_buffer.rfind(b"$")
+                self._rx_buffer = self._rx_buffer[last_start:] if last_start >= 0 else bytearray()
+
+            while b"\n" in self._rx_buffer:
+                raw_line, _, remainder = self._rx_buffer.partition(b"\n")
+                self._rx_buffer = bytearray(remainder)
+                line = raw_line.strip().decode("ascii", errors="ignore")
 
                 if not _nmea_checksum_valid(line):
                     self._bad_nmea_count += 1
@@ -227,23 +293,21 @@ class GPSReader(BaseSensorReader):
                 self.valid_sentence_count += 1
                 self.last_valid_sentence_monotonic_ns = time.monotonic_ns()
 
-                if line.startswith("$GPGGA") or line.startswith("$GNGGA"):
+                message = line[1:].split(",", 1)[0]
+                kind = message[-3:]
+                if kind == "GGA":
                     parsed = _parse_nmea_gga(line)
                     if parsed:
                         self._latest_gga = parsed
                         self._gga_received_mono = received_mono
                         self._gga_received_wall = received_wall
 
-                elif line.startswith("$GPRMC") or line.startswith("$GNRMC"):
+                elif kind == "RMC":
                     parsed = _parse_nmea_rmc(line)
                     if parsed:
                         self._latest_rmc = parsed
                         self._rmc_received_mono = received_mono
                         self._rmc_received_wall = received_wall
-
-                # 一次调用拿到任一导航句即可返回，剩余句由下次读取并与缓存组合。
-                if self._latest_gga is not None and self._latest_rmc is not None:
-                    break
 
             current_mono = time.monotonic()
             gga_fresh = (
@@ -256,8 +320,8 @@ class GPSReader(BaseSensorReader):
             )
             if gga_fresh:
                 gga = self._latest_gga or {}
-                gps.latitude = float(gga.get("latitude", 0.0))
-                gps.longitude = float(gga.get("longitude", 0.0))
+                gps.latitude = float(gga.get("latitude") or 0.0)
+                gps.longitude = float(gga.get("longitude") or 0.0)
                 gps.fix_quality = int(gga.get("fix_quality", 0))
                 gps.satellites = int(gga.get("satellites", 0))
             if rmc_fresh:
@@ -285,6 +349,7 @@ class GPSReader(BaseSensorReader):
 
         except Exception as e:
             print(f"[GPSReader] 读取异常: {e}")
+            self.last_error = str(e)
 
         return gps
 

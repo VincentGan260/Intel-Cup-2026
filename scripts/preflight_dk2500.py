@@ -78,9 +78,11 @@ def check_gps(ports: dict, loops: int) -> dict:
     # 检查串口是否真正打开（有些 reader 在 start 中静默失败后回退到 mock 数据）
     if hasattr(reader, "_serial") and reader._serial is None:
         result["status"] = "FAILED"
-        result["error"] = f"串口 {result['port']} 未能打开"
+        result["error"] = reader.last_error or "G60串口未能打开"
         reader.stop()
         return result
+
+    result["port"] = reader.get_diagnostics().get("port", result["port"])
 
     deadline = time.time() + 30  # 每模块总超时 30 秒
     for i in range(loops):
