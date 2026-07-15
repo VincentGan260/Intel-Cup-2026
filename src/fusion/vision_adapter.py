@@ -50,6 +50,8 @@ class VisionAdapter:
         self.use_camera = use_camera
         self.camera_id = camera_id
         self._cap = None
+        if self._pipeline is not None and hasattr(self._pipeline, "close"):
+            self._pipeline.close()
         self._pipeline = None
         self._config: Optional[dict] = None
         self._latest: Optional[VisionData] = None
@@ -138,6 +140,7 @@ class VisionAdapter:
                 detector=detector,
                 segmenter=segmenter,
                 enable_segmentation=enable_seg,
+                enable_parallel_inference=bool(self._config.get("enable_parallel_inference", True)),
             )
 
             # 5. 打开摄像头（可选）
@@ -262,6 +265,7 @@ class VisionAdapter:
                 max_visual_risk=max(0.0, min(1.0, vision_result.max_visual_risk)),
                 detection_inference_ms=round(vision_result.detection_inference_ms, 3),
                 segmentation_inference_ms=round(vision_result.segmentation_inference_ms, 3),
+                pipeline_inference_ms=round(vision_result.pipeline_inference_ms, 3),
             )
 
         except Exception as e:

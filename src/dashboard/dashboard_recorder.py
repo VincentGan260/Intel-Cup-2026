@@ -164,6 +164,7 @@ class DashboardRecorder:
             "vision": vision_features, "fusion": fusion_features,
             "vision_inference_ms": round(float(inference_ms), 3),
             "vision_module_inference_ms": {
+                "pipeline": round(float(getattr(vision, "pipeline_inference_ms", inference_ms)), 3),
                 "detection": round(float(getattr(vision, "detection_inference_ms", 0.0)), 3),
                 "segmentation": round(float(getattr(vision, "segmentation_inference_ms", 0.0)), 3),
             },

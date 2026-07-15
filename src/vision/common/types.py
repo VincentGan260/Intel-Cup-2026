@@ -42,3 +42,4 @@ class VisionResult:
     max_visual_risk: float = 0.0
     detection_inference_ms: float = 0.0
     segmentation_inference_ms: float = 0.0
+    pipeline_inference_ms: float = 0.0

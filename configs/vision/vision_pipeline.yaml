@@ -6,6 +6,7 @@ source: https://ultralytics.com/images/bus.jpg
 
 # 是否启用语义分割（关闭时仅做检测 + 视觉风险，in_drivable_area 为 None）
 enable_segmentation: true
+enable_parallel_inference: true
 
 # Dashboard 正式推理部署契约；VisionAdapter 启动时会校验，避免配置漂移。
 deployment_contract:

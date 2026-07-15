@@ -155,6 +155,7 @@ class VisionData(SensorBase):
     max_visual_risk: float = 0.0  # 单帧最大视觉风险 R_obs [0, 1]
     detection_inference_ms: float = 0.0
     segmentation_inference_ms: float = 0.0
+    pipeline_inference_ms: float = 0.0
 
     def __post_init__(self) -> None:
         self.source = "camera"
