@@ -50,8 +50,6 @@ class VisionAdapter:
         self.use_camera = use_camera
         self.camera_id = camera_id
         self._cap = None
-        if self._pipeline is not None and hasattr(self._pipeline, "close"):
-            self._pipeline.close()
         self._pipeline = None
         self._config: Optional[dict] = None
         self._latest: Optional[VisionData] = None
