@@ -8,6 +8,10 @@
 - **`detection/`**：只负责检测；具体 YOLO 实现在 `detection/models/`，通过 `BaseDetector` 与管线解耦。
 - **`segmentation/`**：只负责分割与可行驶 mask；OpenVINO ADAS、后续 PIDNet 放在 `segmentation/models/`。
 - **`perception/`**：`VisionPipeline` 组合检测与分割，并调用 `target_on_road` 做几何融合。
+
+正式入口统一读取 `configs/vision/vision_pipeline.yaml`。其中
+`execution.parallel_inference: true` 会让目标检测与语义分割针对同一帧并行执行；
+设备由部署契约固定为检测 `INT8@NPU`、分割 `FP16@GPU`，不会使用 `AUTO` 静默回退。
 - **`risk/`**：仅视觉侧 `visual_risk` 初判；雷达、IMU、GPS、TTC 等放在未来的 `src/fusion/`。
 
 **权重路径**在仓库根目录 `models/` 下配置；**不写死**具体框架，换 PyTorch / OpenVINO 时只替换 `*/models/` 内实现类，并在 `detector.py` / `segmenter.py` 工厂中挂接。

@@ -148,9 +148,10 @@ class CloudSyncClient:
     def _open_writer(self, frame, path: Path):
         import cv2
         height, width = frame.shape[:2]
-        # MPEG-4 Part 2 is substantially lighter than software H.264 on DK2500.
-        # Prefer it so the recorder can sustain the requested wall-clock FPS.
-        for codec in ("mp4v", "avc1", "H264"):
+        # Browser playback requires AVC/H.264 inside MP4. MPEG-4 Part 2
+        # (mp4v) is deliberately not used as a fallback because Chrome/Edge
+        # cannot reliably decode it even though the container is named .mp4.
+        for codec in ("avc1", "H264"):
             writer = cv2.VideoWriter(
                 str(path), cv2.VideoWriter_fourcc(*codec), self.video_fps, (width, height))
             if writer.isOpened():
@@ -177,7 +178,7 @@ class CloudSyncClient:
                     writer, codec = self._open_writer(frame, partial_path)
                     segment_start = time.monotonic()
                     if writer is None:
-                        print("[CloudSync] no usable MP4 codec")
+                        print("[CloudSync] no browser-compatible H.264 MP4 codec")
                         self._stop.wait(2.0)
                         continue
                     print(f"[CloudSync] recording {name} codec={codec}")

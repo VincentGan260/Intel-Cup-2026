@@ -3,6 +3,7 @@ sync:
   clock: monotonic_ns
   primary_timeline: camera
   radar_max_delta_ms: 100.0
+  radar_no_target_max_age_ms: 2000.0
   gps_max_delta_ms: 1000.0
 quality:
   gps_required: false

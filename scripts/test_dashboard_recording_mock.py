@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import shutil
+import json
 import subprocess
 import sys
 import time
@@ -21,7 +22,7 @@ from src.sensors.radar_reader import RadarReader
 
 
 def main() -> int:
-    output = ROOT / "tmp" / "dashboard_recording_mock"
+    output = Path("/tmp/intelcup_dashboard_recording_mock")
     if output.exists():
         shutil.rmtree(output)
     cfg = yaml.safe_load((ROOT / "configs" / "dashboard_recording.yaml").read_text(encoding="utf-8"))
@@ -53,7 +54,12 @@ def main() -> int:
                        stamps["vision_latency_ms"], stamps, camera_frame_id=index,
                        radar_valid=True, gps_valid=True)
         time.sleep(.01)
+    checkpoint = json.loads((recorder.session_dir / "session.json").read_text(encoding="utf-8"))
+    assert checkpoint["status"] == "recording" and checkpoint["sample_count"] == 7
     recorder.close()
+    recorder.close()
+    completed = json.loads((recorder.session_dir / "session.json").read_text(encoding="utf-8"))
+    assert completed["status"] == "complete" and completed["sample_count"] == 7
     check = subprocess.run([sys.executable, str(ROOT / "scripts/check_dashboard_recording.py"),
                             str(recorder.session_dir)], check=False)
     dataset = output / "windows.npz"

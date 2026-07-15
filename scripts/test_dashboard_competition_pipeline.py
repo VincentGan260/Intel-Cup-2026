@@ -6,12 +6,16 @@ import time
 from pathlib import Path
 from types import SimpleNamespace as NS
 
+import numpy as np
+
 ROOT = Path(__file__).resolve().parent.parent
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 from src.dashboard.real_sensor_state import build_real_sensor_state
+from src.dashboard.vision_snapshot import VisionSnapshot
 from src.fusion.data_types import GPSData, RadarData, RadarTarget, VisionData
+from src.vision.common.types import VisionResult
 from src.fusion.physical_risk_rule import PhysicalRiskRule
 
 
@@ -68,6 +72,11 @@ class Frame:
     shape = (480, 640, 3)
 
 
+class CapturingRecorder:
+    def __init__(self): self.calls = []
+    def write(self, *args, **kwargs): self.calls.append((args, kwargs))
+
+
 def make_rule():
     return PhysicalRiskRule(
         body_width_m=0.66,
@@ -114,6 +123,53 @@ def main() -> None:
     )
     assert stale["risk_status"] == "unknown"
     assert stale_motor.calls == []
+
+    no_target = RadarData(valid=True, targets=[])
+    no_target_state = build_real_sensor_state(
+        camera_available=True,
+        radar_reader=FakeRadarReader(no_target, age_ms=1200),
+        gps_reader=FakeGPSReader(),
+        vision_adapter=None,
+        target_stale_ms=500.0,
+        radar_communication_watchdog_ms=2000.0,
+    )
+    assert no_target_state["radar_data"]["valid"] is True
+    assert no_target_state["radar_data"]["communication_alive"] is True
+    assert no_target_state["radar_data"]["target_age_fresh"] is False
+
+    frame = np.zeros((48, 64, 3), dtype=np.uint8)
+    capture_ns = time.monotonic_ns() - 10_000_000
+    vision_start_ns = time.monotonic_ns()
+    vision_finish_ns = vision_start_ns + 12_000_000
+    snapshot = VisionSnapshot(
+        source_frame_id=42,
+        source_frame=frame,
+        frame_capture_monotonic_ns=capture_ns,
+        vision_start_monotonic_ns=vision_start_ns,
+        vision_finish_monotonic_ns=vision_finish_ns,
+        vision_data=VisionData(valid=True),
+        vision_result=VisionResult(),
+    )
+    recorder = CapturingRecorder()
+    build_real_sensor_state(
+        camera_available=True,
+        radar_reader=FakeRadarReader(no_target, age_ms=1),
+        gps_reader=FakeGPSReader(),
+        frame=frame,
+        frame_capture_monotonic_ns=capture_ns,
+        camera_frame_id=42,
+        vision_adapter=SlowVision(),
+        vision_snapshot=snapshot,
+        process_vision=False,
+        recorder=recorder,
+    )
+    assert len(recorder.calls) == 1
+    args, kwargs = recorder.calls[0]
+    stamps = args[6]
+    assert kwargs["camera_frame_id"] == 42
+    assert stamps["vision_start_monotonic_ns"] == vision_start_ns
+    assert stamps["vision_finish_monotonic_ns"] == vision_finish_ns
+    assert stamps["vision_latency_ms"] == 12.0
     print("dashboard competition pipeline: all tests passed")
 
 
