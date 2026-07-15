@@ -34,7 +34,12 @@ _state_store = None  # type: Optional[object]  # DashboardStateStore
 
 # ── VisionResult 缓存（状态线程推理后写入，video_annotated_feed 每帧读取绘制） ──
 _vision_result_cache: Optional[object] = None  # VisionResult
+_vision_result_version = 0
 _vr_lock = threading.Lock()
+
+# Dashboard 绘图缓存；只保存由分割 mask 派生的显示数据，不参与风险判断。
+_overlay_mask_cache: Optional[tuple] = None
+_overlay_cache_lock = threading.Lock()
 
 # ── 共享帧抓取器（单摄像头 → 多消费者，防止帧被瓜分） ──
 _shared_jpeg: Optional[bytes] = None
@@ -116,6 +121,39 @@ def _get_state_payload() -> dict:
     }
     return state
 
+
+def _get_overlay_mask_blend(vr, version: int, width: int, height: int):
+    """返回可复用的分割叠加权重；同一视觉结果和尺寸只计算一次。"""
+    global _overlay_mask_cache
+    cache_key = (version, width, height)
+    with _overlay_cache_lock:
+        cached = _overlay_mask_cache
+        if cached is not None and cached[0] == cache_key:
+            return cached[1]
+
+    mask = getattr(vr, "drivable_mask", None)
+    if mask is None or mask.size == 0:
+        return None
+
+    import cv2
+
+    mask_resized = cv2.resize(mask, (width, height), interpolation=cv2.INTER_NEAREST)
+    mask_area = (mask_resized > 0).astype(np.float32)[..., None]
+    alpha_mask = 0.35 * mask_area
+    keep_weight = 1.0 - alpha_mask
+    color = np.array([0.0, 220.0, 180.0], dtype=np.float32).reshape(1, 1, 3)
+    color_term = color * alpha_mask
+    dr_ratio = (
+        vr.segmentation.drivable_ratio
+        if getattr(vr, "segmentation", None) is not None
+        and vr.segmentation.drivable_ratio is not None
+        else float(np.count_nonzero(mask_resized)) / max(1, mask_resized.size)
+    )
+    blend = (keep_weight, color_term, float(dr_ratio))
+    with _overlay_cache_lock:
+        _overlay_mask_cache = (cache_key, blend)
+    return blend
+
 # ── FastAPI 应用 ──
 app = FastAPI(title="Rider Warning Dashboard", version="0.1.0")
 
@@ -179,7 +217,7 @@ async def video_annotated_feed():
     视频以约 20 FPS 输出；Vision 推理由后台状态线程异步完成。
     """
 
-    def _draw_on_frame(bgr: np.ndarray, vr) -> np.ndarray:
+    def _draw_on_frame(bgr: np.ndarray, vr, vr_version: int) -> np.ndarray:
         """在 BGR 帧上绘制检测框 + 语义分割 mask，不重复推理。"""
         try:
             import cv2
@@ -191,18 +229,15 @@ async def video_annotated_feed():
             has_mask = False
             if vr.drivable_mask is not None and vr.drivable_mask.size > 0:
                 try:
-                    from src.vision.segmentation.mask_utils import resize_mask_to_image
-                    mask_resized = resize_mask_to_image(vr.drivable_mask, (w, h))
-                    mask_area = (mask_resized > 0).astype(np.float32)
-                    color = np.array([0.0, 220.0, 180.0], dtype=np.float32)
-                    alpha = 0.35
-                    out_f = out.astype(np.float32)
-                    out_f = out_f * (1.0 - alpha * mask_area[..., None]) \
-                        + color.reshape(1, 1, 3) * (alpha * mask_area[..., None])
-                    out = np.clip(out_f, 0, 255).astype(np.uint8)
-                    dr_ratio = vr.segmentation.drivable_ratio if (
-                        vr.segmentation is not None and vr.segmentation.drivable_ratio is not None
-                    ) else float(np.count_nonzero(mask_resized)) / max(1, mask_resized.size)
+                    blend = _get_overlay_mask_blend(vr, vr_version, w, h)
+                    if blend is None:
+                        raise ValueError("empty drivable mask")
+                    keep_weight, color_term, dr_ratio = blend
+                    out = np.clip(
+                        out.astype(np.float32) * keep_weight + color_term,
+                        0,
+                        255,
+                    ).astype(np.uint8)
                     cv2.putText(out, f"Drivable Area: {dr_ratio * 100:.1f}%",
                                 (12, 28), cv2.FONT_HERSHEY_SIMPLEX, 0.65, (0, 220, 180), 2, cv2.LINE_AA)
                     has_mask = True
@@ -242,12 +277,13 @@ async def video_annotated_feed():
                 frame_bytes = b""
                 with _vr_lock:
                     vr = _vision_result_cache
+                    vr_version = _vision_result_version
                 if vr is not None:
                     bgr = _get_shared_bgr()
                     if bgr is not None:
                         try:
                             import cv2
-                            annotated = _draw_on_frame(bgr, vr)
+                            annotated = _draw_on_frame(bgr, vr, vr_version)
                             ret, enc = cv2.imencode(".jpg", annotated,
                                                     [cv2.IMWRITE_JPEG_QUALITY, 80])
                             if ret:
@@ -381,6 +417,13 @@ def update_vision_result_cache(vr) -> None:
 
     传入 None 表示视觉不可用。
     """
-    global _vision_result_cache
+    global _vision_result_cache, _vision_result_version, _overlay_mask_cache
+    changed = False
     with _vr_lock:
-        _vision_result_cache = vr
+        if vr is not _vision_result_cache:
+            _vision_result_cache = vr
+            _vision_result_version += 1
+            changed = True
+    if changed:
+        with _overlay_cache_lock:
+            _overlay_mask_cache = None
