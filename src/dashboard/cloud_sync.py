@@ -63,7 +63,8 @@ class CloudSyncClient:
 
     def __init__(self, *, base_url: str, device_id: str, camera, spool_dir: Path,
                  state_hz: float = 1.0, video_fps: float = 10.0,
-                 segment_seconds: float = 60.0, request_timeout: float = 15.0) -> None:
+                 segment_seconds: float = 60.0, request_timeout: float = 15.0,
+                 video_queue_size: int = 8, spool_max_gb: float = 2.0) -> None:
         if not re.fullmatch(r"[A-Za-z0-9_-]{1,32}", device_id):
             raise ValueError("device_id must match [A-Za-z0-9_-]{1,32}")
         self.base_url = base_url.rstrip("/")
@@ -75,19 +76,24 @@ class CloudSyncClient:
         self.video_fps = max(1.0, float(video_fps))
         self.segment_seconds = max(1.0, float(segment_seconds))
         self.request_timeout = max(1.0, float(request_timeout))
+        self.spool_max_bytes = max(64 * 1024 * 1024, int(float(spool_max_gb) * 1024 ** 3))
         self._stop = threading.Event()
         self._state_queue: queue.Queue = queue.Queue(maxsize=2)
-        self._video_queue: queue.Queue = queue.Queue()
+        self._video_queue: queue.Queue = queue.Queue(maxsize=max(1, int(video_queue_size)))
+        self._video_queue_lock = threading.Lock()
+        self._queued_video_paths: set[Path] = set()
+        self._video_retry_after: dict[Path, float] = {}
+        self._video_failures: dict[Path, int] = {}
         self._last_state_queued = 0.0
         self._state_uploaded = 0
         self._record_done = threading.Event()
         self._threads = []
+        self._last_spool_warning = 0.0
 
     def start(self) -> None:
         for path in self.spool_dir.glob("*.partial.mp4"):
             path.unlink(missing_ok=True)
-        for path in sorted(self.spool_dir.glob("*.mp4")):
-            self._video_queue.put((path, self._started_at_from_path(path)))
+        self._fill_video_queue()
         self._threads = [
             threading.Thread(target=self._state_upload_loop, daemon=True,
                              name="cloud-state-upload"),
@@ -123,6 +129,47 @@ class CloudSyncClient:
         for thread in self._threads:
             thread.join(timeout=5.0)
         print("[CloudSync] stopped")
+
+    def _spool_usage_bytes(self) -> int:
+        total = 0
+        for pattern in ("*.mp4", "*.partial.mp4"):
+            for path in self.spool_dir.glob(pattern):
+                try:
+                    total += path.stat().st_size
+                except OSError:
+                    pass
+        return total
+
+    def _spool_has_capacity(self) -> bool:
+        usage = self._spool_usage_bytes()
+        if usage < self.spool_max_bytes:
+            return True
+        now_mono = time.monotonic()
+        if now_mono - self._last_spool_warning >= 30.0:
+            print(f"[CloudSync] video spool full ({usage / 1024 ** 3:.2f} GiB); "
+                  "pausing new cloud video recording until uploads free space")
+            self._last_spool_warning = now_mono
+        return False
+
+    def _enqueue_video(self, path: Path, started_at: datetime) -> bool:
+        path = path.resolve()
+        with self._video_queue_lock:
+            if path in self._queued_video_paths:
+                return True
+            if time.monotonic() < self._video_retry_after.get(path, 0.0):
+                return False
+            try:
+                self._video_queue.put_nowait((path, started_at))
+            except queue.Full:
+                return False
+            self._queued_video_paths.add(path)
+            return True
+
+    def _fill_video_queue(self) -> None:
+        for path in sorted(self.spool_dir.glob("*.mp4")):
+            if not self._enqueue_video(path, self._started_at_from_path(path)):
+                if self._video_queue.full():
+                    break
 
     def _state_upload_loop(self) -> None:
         import requests
@@ -171,6 +218,9 @@ class CloudSyncClient:
             frame = self.camera.get_bgr_frame()
             if frame is not None:
                 if writer is None:
+                    if not self._spool_has_capacity():
+                        self._stop.wait(1.0)
+                        continue
                     started_at = datetime.now(timezone.utc)
                     name = f"{self.device_id}_{started_at.strftime('%Y%m%dT%H%M%S%fZ')}.mp4"
                     current_path = self.spool_dir / name
@@ -189,7 +239,7 @@ class CloudSyncClient:
                     if (current_path is not None and partial_path is not None
                             and started_at is not None):
                         partial_path.replace(current_path)
-                        self._video_queue.put((current_path, started_at))
+                        self._enqueue_video(current_path, started_at)
                     current_path = None
                     partial_path = None
                     started_at = None
@@ -201,18 +251,21 @@ class CloudSyncClient:
             if (current_path is not None and partial_path is not None
                     and started_at is not None and partial_path.exists()):
                 partial_path.replace(current_path)
-                self._video_queue.put((current_path, started_at))
+                self._enqueue_video(current_path, started_at)
         self._record_done.set()
 
     def _video_upload_loop(self) -> None:
         import requests
         url = f"{self.base_url}/api/video-segments"
-        while not self._record_done.is_set() or not self._video_queue.empty():
+        while not self._stop.is_set() or not self._record_done.is_set():
+            self._fill_video_queue()
             try:
                 path, started_at = self._video_queue.get(timeout=0.5)
             except queue.Empty:
                 continue
             if not path.is_file():
+                with self._video_queue_lock:
+                    self._queued_video_paths.discard(path)
                 continue
             try:
                 duration_s = self._probe_duration(path)
@@ -227,11 +280,19 @@ class CloudSyncClient:
                     )
                 response.raise_for_status()
                 path.unlink()
+                with self._video_queue_lock:
+                    self._queued_video_paths.discard(path)
+                    self._video_retry_after.pop(path, None)
+                    self._video_failures.pop(path, None)
                 print(f"[CloudSync] video uploaded {path.name} duration={duration_s:.1f}s")
             except Exception as exc:
-                print(f"[CloudSync] video upload failed {path.name}: {exc}")
-                if not self._stop.wait(10.0):
-                    self._video_queue.put((path, started_at))
+                with self._video_queue_lock:
+                    failures = self._video_failures.get(path, 0) + 1
+                    self._video_failures[path] = failures
+                    self._video_retry_after[path] = (
+                        time.monotonic() + min(60.0, 5.0 * (2 ** min(failures - 1, 4))))
+                    self._queued_video_paths.discard(path)
+                print(f"[CloudSync] video upload failed {path.name}; retained for retry: {exc}")
 
     def _probe_duration(self, path: Path) -> float:
         """Return the playable MP4 duration instead of assuming segment length."""

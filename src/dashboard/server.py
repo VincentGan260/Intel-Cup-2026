@@ -39,6 +39,9 @@ _vr_lock = threading.Lock()
 
 # Dashboard 绘图缓存；只保存由分割 mask 派生的显示数据，不参与风险判断。
 _overlay_mask_cache: Optional[tuple] = None
+_overlay_previous_mask: Optional[np.ndarray] = None
+_overlay_detection_cache: Optional[tuple] = None
+_overlay_previous_detections: list[tuple[object, tuple[float, float, float, float]]] = []
 _overlay_cache_lock = threading.Lock()
 
 # ── 共享帧抓取器（单摄像头 → 多消费者，防止帧被瓜分） ──
@@ -123,8 +126,8 @@ def _get_state_payload() -> dict:
 
 
 def _get_overlay_mask_blend(vr, version: int, width: int, height: int):
-    """返回可复用的分割叠加权重；同一视觉结果和尺寸只计算一次。"""
-    global _overlay_mask_cache
+    """Return a cached display-only blend with conservative boundary damping."""
+    global _overlay_mask_cache, _overlay_previous_mask
     cache_key = (version, width, height)
     with _overlay_cache_lock:
         cached = _overlay_mask_cache
@@ -138,7 +141,19 @@ def _get_overlay_mask_blend(vr, version: int, width: int, height: int):
     import cv2
 
     mask_resized = cv2.resize(mask, (width, height), interpolation=cv2.INTER_NEAREST)
-    mask_area = (mask_resized > 0).astype(np.float32)[..., None]
+    current_mask = (mask_resized > 0).astype(np.float32)
+    with _overlay_cache_lock:
+        previous_mask = _overlay_previous_mask
+        if previous_mask is not None and previous_mask.shape == current_mask.shape:
+            changed_ratio = float(np.mean(previous_mask != current_mask))
+            display_mask = (
+                0.85 * current_mask + 0.15 * previous_mask
+                if changed_ratio <= 0.08 else current_mask
+            )
+        else:
+            display_mask = current_mask
+        _overlay_previous_mask = current_mask
+    mask_area = display_mask[..., None]
     alpha_mask = 0.35 * mask_area
     keep_weight = 1.0 - alpha_mask
     color = np.array([0.0, 220.0, 180.0], dtype=np.float32).reshape(1, 1, 3)
@@ -153,6 +168,56 @@ def _get_overlay_mask_blend(vr, version: int, width: int, height: int):
     with _overlay_cache_lock:
         _overlay_mask_cache = (cache_key, blend)
     return blend
+
+
+def _bbox_iou(a, b) -> float:
+    ax1, ay1, ax2, ay2 = a
+    bx1, by1, bx2, by2 = b
+    ix1, iy1 = max(ax1, bx1), max(ay1, by1)
+    ix2, iy2 = min(ax2, bx2), min(ay2, by2)
+    intersection = max(0.0, ix2 - ix1) * max(0.0, iy2 - iy1)
+    union = (max(0.0, ax2 - ax1) * max(0.0, ay2 - ay1)
+             + max(0.0, bx2 - bx1) * max(0.0, by2 - by1) - intersection)
+    return intersection / union if union > 0.0 else 0.0
+
+
+def _get_display_detections(vr, version: int):
+    """Smooth small box jitter for drawing only; high-risk boxes stay immediate."""
+    global _overlay_detection_cache, _overlay_previous_detections
+    with _overlay_cache_lock:
+        if _overlay_detection_cache is not None and _overlay_detection_cache[0] == version:
+            return _overlay_detection_cache[1]
+
+        previous = list(_overlay_previous_detections)
+        used_previous: set[int] = set()
+        displayed = []
+        for det in list(getattr(vr, "detections", []) or []):
+            current = tuple(float(value) for value in det.bbox)
+            risk = float(det.visual_risk if det.visual_risk is not None else 0.0)
+            best_index = None
+            best_iou = 0.45
+            if risk < 0.7:
+                current_class = det.risk_class or det.class_name
+                for index, (old_det, old_bbox) in enumerate(previous):
+                    if index in used_previous:
+                        continue
+                    old_class = old_det.risk_class or old_det.class_name
+                    if old_class != current_class:
+                        continue
+                    overlap = _bbox_iou(current, old_bbox)
+                    if overlap > best_iou:
+                        best_index, best_iou = index, overlap
+            if best_index is not None:
+                used_previous.add(best_index)
+                old_bbox = previous[best_index][1]
+                current = tuple(0.85 * new + 0.15 * old
+                                for new, old in zip(current, old_bbox))
+            displayed.append((det, current))
+
+        # Never retain a missing detection; this prevents phantom obstacles.
+        _overlay_previous_detections = displayed
+        _overlay_detection_cache = (version, displayed)
+        return displayed
 
 # ── FastAPI 应用 ──
 app = FastAPI(title="Rider Warning Dashboard", version="0.1.0")
@@ -249,9 +314,9 @@ async def video_annotated_feed():
                             cv2.FONT_HERSHEY_SIMPLEX, 0.5, (128, 128, 128), 1, cv2.LINE_AA)
 
             # ── 检测框 ──
-            for det in vr.detections:
-                x1, y1, x2, y2 = (int(det.bbox[0]), int(det.bbox[1]),
-                                  int(det.bbox[2]), int(det.bbox[3]))
+            for det, display_bbox in _get_display_detections(vr, vr_version):
+                x1, y1, x2, y2 = (int(display_bbox[0]), int(display_bbox[1]),
+                                  int(display_bbox[2]), int(display_bbox[3]))
                 risk = det.visual_risk if det.visual_risk is not None else 0.0
                 if risk >= 0.7:
                     color = (0, 0, 255)
@@ -426,6 +491,7 @@ def update_vision_result_cache(vr) -> None:
     传入 None 表示视觉不可用。
     """
     global _vision_result_cache, _vision_result_version, _overlay_mask_cache
+    global _overlay_previous_mask, _overlay_detection_cache, _overlay_previous_detections
     changed = False
     with _vr_lock:
         if vr is not _vision_result_cache:
@@ -435,3 +501,7 @@ def update_vision_result_cache(vr) -> None:
     if changed:
         with _overlay_cache_lock:
             _overlay_mask_cache = None
+            if vr is None:
+                _overlay_previous_mask = None
+                _overlay_detection_cache = None
+                _overlay_previous_detections = []

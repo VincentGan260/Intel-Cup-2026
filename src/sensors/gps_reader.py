@@ -133,43 +133,41 @@ class GPSReader(BaseSensorReader):
 
     def start(self) -> None:
         if self.is_real:
-            import serial as _serial
-
-            port = self.config.get("port", "/dev/ttyGPSNEO")
-            baudrate = self.config.get("baudrate", 9600)
-            timeout = self.config.get("timeout", 1.0)
-
-            try:
-                self._serial = _serial.Serial(port, baudrate, timeout=timeout)
+            self._serial_reconnect_enabled = True
+            if self._connect_serial():
                 self.bytes_received = 0
                 self.valid_sentence_count = 0
                 self._bad_nmea_count = 0
                 self.last_byte_monotonic_ns = 0
                 self.last_valid_sentence_monotonic_ns = 0
                 self.last_error = ""
-                print(f"[GPSReader] 已打开串口 {port} @ {baudrate}")
-            except Exception as e:
-                print(f"[GPSReader] 串口打开失败: {e}")
-                self._serial = None
-                self.last_error = str(e)
         else:
             self._mock_speed = 12.0  # 初始速度 12 km/h
             print("[GPSReader] mock 模式启动")
 
+    def _connect_serial(self) -> bool:
+        connected = self._open_serial_with_retry(
+            port=self.config.get("port", "/dev/ttyGPSNEO"),
+            baudrate=int(self.config.get("baudrate", 9600)),
+            timeout=float(self.config.get("timeout", 1.0)),
+            label="GPSReader",
+        )
+        if connected:
+            self._latest_gga = None
+            self._latest_rmc = None
+            self._gga_received_mono = 0.0
+            self._rmc_received_mono = 0.0
+        return connected
+
     def stop(self) -> None:
-        if self._serial is not None:
-            try:
-                self._serial.close()
-                print("[GPSReader] 串口已关闭")
-            except Exception:
-                pass
-            self._serial = None
-        else:
-            print("[GPSReader] 已停止")
+        self._disable_serial_reconnect()
+        print("[GPSReader] 已停止")
 
     def read_once(self) -> GPSData:
         ts = now()
         if self.is_real:
+            if self._serial is None or not getattr(self._serial, "is_open", False):
+                self._connect_serial()
             result = self._read_real(ts)
         else:
             result = self._read_mock(ts)
@@ -284,7 +282,7 @@ class GPSReader(BaseSensorReader):
                 self.last_sample_monotonic_ns = int(self._rmc_received_mono * 1_000_000_000)
 
         except Exception as e:
-            print(f"[GPSReader] 读取异常: {e}")
+            self._mark_serial_disconnected(e, label="GPSReader")
 
         return gps
 

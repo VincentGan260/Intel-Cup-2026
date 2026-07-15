@@ -392,6 +392,10 @@ def main() -> None:
                         help="cloud video segment duration")
     parser.add_argument("--cloud-spool", default="data/cloud_spool",
                         help="local directory for videos awaiting upload")
+    parser.add_argument("--cloud-video-queue-size", type=int, default=8,
+                        help="maximum cloud video segments held in memory")
+    parser.add_argument("--cloud-spool-max-gb", type=float, default=2.0,
+                        help="pause new cloud video recording when the spool reaches this size")
     parser.add_argument(
         "--enable-vision", action="store_true",
         help="hybrid 模式下启用视觉推理（需要 openvino 环境）",
@@ -712,6 +716,8 @@ def main() -> None:
             state_hz=args.cloud_state_hz,
             video_fps=args.cloud_video_fps,
             segment_seconds=args.cloud_video_seconds,
+            video_queue_size=args.cloud_video_queue_size,
+            spool_max_gb=args.cloud_spool_max_gb,
         )
         cloud_sync.start()
 

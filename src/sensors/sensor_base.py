@@ -10,6 +10,7 @@
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
+import time
 from typing import Any, Optional
 
 from src.fusion.data_types import SensorBase
@@ -26,6 +27,68 @@ class BaseSensorReader(ABC):
         self.mode = mode
         self.config = config or {}
         self._latest: Optional[SensorBase] = None
+        self._serial_reconnect_interval_sec = max(
+            0.5, float(self.config.get("reconnect_interval_sec", 2.0)))
+        self._serial_next_reconnect_at = 0.0
+        self._serial_reconnect_enabled = False
+
+    def _open_serial_with_retry(
+        self,
+        *,
+        port: str,
+        baudrate: int,
+        timeout: float,
+        label: str,
+    ) -> bool:
+        """Open a serial device now, or defer a failed retry without blocking callers."""
+        if not self.is_real or not self._serial_reconnect_enabled:
+            return False
+        current = getattr(self, "_serial", None)
+        if current is not None and getattr(current, "is_open", False):
+            return False
+        now_mono = time.monotonic()
+        if now_mono < self._serial_next_reconnect_at:
+            return False
+        self._serial_next_reconnect_at = now_mono + self._serial_reconnect_interval_sec
+        try:
+            import serial
+
+            self._serial = serial.Serial(port, baudrate, timeout=timeout)
+            self._serial_next_reconnect_at = 0.0
+            if hasattr(self, "last_error"):
+                self.last_error = ""
+            print(f"[{label}] 已连接串口 {port} @ {baudrate}")
+            return True
+        except Exception as exc:
+            self._serial = None
+            if hasattr(self, "last_error"):
+                self.last_error = str(exc)
+            print(f"[{label}] 串口暂不可用，{self._serial_reconnect_interval_sec:.1f}s 后重试: {exc}")
+            return False
+
+    def _mark_serial_disconnected(self, exc: Exception, *, label: str) -> None:
+        """Close a failed handle and schedule a bounded reconnect attempt."""
+        current = getattr(self, "_serial", None)
+        if current is not None:
+            try:
+                current.close()
+            except Exception:
+                pass
+        self._serial = None
+        self._serial_next_reconnect_at = time.monotonic() + self._serial_reconnect_interval_sec
+        if hasattr(self, "last_error"):
+            self.last_error = str(exc)
+        print(f"[{label}] 串口连接中断，将自动恢复: {exc}")
+
+    def _disable_serial_reconnect(self) -> None:
+        self._serial_reconnect_enabled = False
+        current = getattr(self, "_serial", None)
+        if current is not None:
+            try:
+                current.close()
+            except Exception:
+                pass
+        self._serial = None
 
     @abstractmethod
     def start(self) -> None:
