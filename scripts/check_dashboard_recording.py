@@ -41,6 +41,8 @@ def check_session(session_dir: Path) -> tuple[dict, int]:
         return {"passed": False, "errors": [f"samples.jsonl 无法读取: {exc}"]}, 2
 
     ids = [row.get("sample_id") for row in rows]
+    if meta.get("status") not in (None, "complete"):
+        errors.append(f"session status={meta.get('status')}，未正常封盘")
     if not rows:
         errors.append("录制中没有样本")
     if ids != list(range(len(rows))):
@@ -115,9 +117,32 @@ def check_session(session_dir: Path) -> tuple[dict, int]:
         invalid_ratio = 1.0 - modalities[modality]["valid_ratio"]
         if invalid_ratio > float(limits.get(limit_name, 1.0)):
             errors.append(f"{modality}无效比例 {invalid_ratio:.1%} 过高")
-    radar_stale_ratio = (((len(rows) - len(radar_delta)) + sum(
-        abs(x) > float(thresholds.get("radar_max_delta_ms", 100.0)) for x in radar_delta
-    )) / len(rows)) if rows else 1.0
+    radar_target_rows = [row for row in rows if bool((row.get("radar") or {}).get("targets"))]
+    radar_no_target_rows = [row for row in rows if not bool((row.get("radar") or {}).get("targets"))]
+    radar_limit_ms = float(thresholds.get("radar_max_delta_ms", 100.0))
+    no_target_limit_ms = float(thresholds.get("radar_no_target_max_age_ms", 2000.0))
+
+    def target_sync_ok(row: dict) -> bool:
+        timestamps = row.get("timestamps", {})
+        if "radar_target_sync_fresh" in timestamps:
+            return bool(timestamps["radar_target_sync_fresh"])
+        delta = timestamps.get("radar_delta_ms")
+        return isinstance(delta, (int, float)) and abs(float(delta)) <= radar_limit_ms
+
+    def communication_ok(row: dict) -> bool:
+        timestamps = row.get("timestamps", {})
+        if "radar_communication_alive" in timestamps:
+            return bool(timestamps["radar_communication_alive"])
+        age = timestamps.get("radar_age_ms")
+        if isinstance(age, (int, float)):
+            return 0.0 <= float(age) <= no_target_limit_ms
+        return bool((row.get("radar") or {}).get("valid", False))
+
+    target_sync_failures = sum(not target_sync_ok(row) for row in radar_target_rows)
+    communication_failures = sum(not communication_ok(row) for row in radar_no_target_rows)
+    radar_stale_ratio = (
+        (target_sync_failures + communication_failures) / len(rows) if rows else 1.0
+    )
     gps_stale_ratio = (((len(rows) - len(gps_delta)) + sum(
         abs(x) > float(thresholds.get("gps_max_delta_ms", 1000.0)) for x in gps_delta
     )) / len(rows)) if rows else 1.0
@@ -141,8 +166,8 @@ def check_session(session_dir: Path) -> tuple[dict, int]:
         "passed": not errors, "errors": errors, "sample_count": len(rows),
         "modalities": modalities, "actual_sample_hz": actual_hz,
         "sample_interval_ms": _stats(intervals), "vision_latency_ms": _stats(vision_latency),
-        "radar_delta_ms": {**_stats([abs(x) for x in radar_delta]), "over_threshold": sum(
-            abs(x) > float(thresholds.get("radar_max_delta_ms", 100.0)) for x in radar_delta)},
+        "radar_delta_ms": {**_stats([abs(x) for x in radar_delta]),
+                           "target_frames_over_threshold": target_sync_failures},
         "gps_delta_ms": {**_stats([abs(x) for x in gps_delta]), "over_threshold": sum(
             abs(x) > float(thresholds.get("gps_max_delta_ms", 1000.0)) for x in gps_delta)},
         "vision": {"empty_detection_ratio": empty_detections / len(rows) if rows else 0.0,
@@ -150,6 +175,14 @@ def check_session(session_dir: Path) -> tuple[dict, int]:
                    "drivable_area_ratio_max": max(drivable) if drivable else 0.0,
                    "drivable_area_abnormal_count": sum(x < 0 or x > 1 for x in drivable)},
         "radar_target_frame_ratio": radar_target_frames / len(rows) if rows else 0.0,
+        "radar_target_sync_ratio": (
+            (len(radar_target_rows) - target_sync_failures) / len(radar_target_rows)
+            if radar_target_rows else 1.0
+        ),
+        "radar_communication_alive_ratio": (
+            (len(radar_no_target_rows) - communication_failures) / len(radar_no_target_rows)
+            if radar_no_target_rows else 1.0
+        ),
         "vision_radar_match_frame_ratio": matched_frames / len(rows) if rows else 0.0,
         "radar_stale_ratio": radar_stale_ratio,
         "gps_stale_ratio": gps_stale_ratio,

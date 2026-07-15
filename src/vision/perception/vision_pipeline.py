@@ -2,8 +2,9 @@
 
 from __future__ import annotations
 
-import time
 from concurrent.futures import ThreadPoolExecutor
+from threading import Lock
+import time
 import numpy as np
 
 from src.vision.common.interfaces import BaseDetector, BaseSegmenter
@@ -26,50 +27,59 @@ class VisionPipeline:
         detector: BaseDetector,
         segmenter: BaseSegmenter | None = None,
         enable_segmentation: bool = True,
-        enable_parallel_inference: bool = True,
+        parallel_inference: bool = True,
+        enable_parallel_inference: bool | None = None,
     ) -> None:
         self.detector = detector
         self.segmenter = segmenter
         self.enable_segmentation = enable_segmentation
-        self.enable_parallel_inference = enable_parallel_inference
+        if enable_parallel_inference is not None:
+            parallel_inference = enable_parallel_inference
+        self.parallel_inference = bool(parallel_inference)
+        self._process_lock = Lock()
         self._executor = (
-            ThreadPoolExecutor(max_workers=2, thread_name_prefix="vision-pipeline")
-            if enable_parallel_inference else None
+            ThreadPoolExecutor(max_workers=2, thread_name_prefix="vision-infer")
+            if self.parallel_inference and self.enable_segmentation and self.segmenter is not None
+            else None
         )
 
+    @staticmethod
+    def _timed_infer(model, frame: np.ndarray):
+        start = time.perf_counter()
+        output = model.infer(frame)
+        return output, (time.perf_counter() - start) * 1000.0
+
     def close(self) -> None:
+        """Release the persistent inference workers."""
         if self._executor is not None:
             self._executor.shutdown(wait=True, cancel_futures=True)
             self._executor = None
 
-    def _infer_detection(self, frame: np.ndarray):
-        start = time.perf_counter()
-        result = self.detector.infer(frame)
-        return result, (time.perf_counter() - start) * 1000.0
-
-    def _infer_segmentation(self, frame: np.ndarray):
-        start = time.perf_counter()
-        result = self.segmenter.infer(frame)  # type: ignore[union-attr]
-        return result, (time.perf_counter() - start) * 1000.0
-
     def process(self, frame: np.ndarray) -> VisionResult:
+        # A pipeline owns one detector and one segmenter. Keep frame-level calls
+        # ordered while the two models for each frame overlap on GPU/NPU.
+        with self._process_lock:
+            return self._process_frame(frame)
+
+    def _process_frame(self, frame: np.ndarray) -> VisionResult:
         pipeline_start = time.perf_counter()
         image_height, image_width = frame.shape[:2]
-
         segmentation = None
         drivable_mask = None
         segmentation_ms = 0.0
         should_segment = self.enable_segmentation and self.segmenter is not None
 
-        if should_segment and self._executor is not None:
-            det_future = self._executor.submit(self._infer_detection, frame)
-            seg_future = self._executor.submit(self._infer_segmentation, frame)
-            detections, detection_ms = det_future.result()
-            segmentation, segmentation_ms = seg_future.result()
+        if self._executor is not None:
+            detection_future = self._executor.submit(self._timed_infer, self.detector, frame)
+            segmentation_future = self._executor.submit(self._timed_infer, self.segmenter, frame)
+            detections, detection_ms = detection_future.result()
+            segmentation, segmentation_ms = segmentation_future.result()
+            drivable_mask = segmentation.drivable_mask
         else:
-            detections, detection_ms = self._infer_detection(frame)
-            if should_segment:
-                segmentation, segmentation_ms = self._infer_segmentation(frame)
+            detections, detection_ms = self._timed_infer(self.detector, frame)
+            if self.enable_segmentation and self.segmenter is not None:
+                segmentation, segmentation_ms = self._timed_infer(self.segmenter, frame)
+                drivable_mask = segmentation.drivable_mask
 
         if segmentation is not None:
             drivable_mask = segmentation.drivable_mask

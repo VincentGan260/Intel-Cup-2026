@@ -108,6 +108,7 @@ def build_real_sensor_state(
     frame_capture_monotonic_ns: int = 0,
     camera_frame_id: int = -1,
     vision_adapter=None,
+    vision_snapshot=None,
     process_vision: bool = True,
     fusion_engine=None,
     recorder=None,
@@ -119,6 +120,7 @@ def build_real_sensor_state(
     warning_system=None,
     target_stale_ms: float = 500.0,
     radar_communication_watchdog_ms: float = 2000.0,
+    record_sample: bool = True,
 ) -> dict:
     sync_thresholds = sync_thresholds or {"radar_max_delta_ms": 100.0, "gps_max_delta_ms": 1000.0}
 
@@ -135,9 +137,17 @@ def build_real_sensor_state(
     radar_sample_ns = int(getattr(radar_reader, "last_sample_monotonic_ns", 0) or 0)
     radar_age_ms = ((radar_end_ns - radar_sample_ns) / 1_000_000.0
                     if radar_sample_ns else None)
-    stale_limit_ms = (target_stale_ms if getattr(radar, "targets", [])
-                      else radar_communication_watchdog_ms)
-    radar_fresh = radar_age_ms is not None and 0.0 <= radar_age_ms <= stale_limit_ms
+    radar_has_targets = bool(getattr(radar, "targets", []))
+    radar_communication_alive = (
+        radar_age_ms is not None
+        and 0.0 <= radar_age_ms <= radar_communication_watchdog_ms
+    )
+    radar_target_age_fresh = (
+        radar_age_ms is not None and 0.0 <= radar_age_ms <= target_stale_ms
+    )
+    radar_fresh = radar_communication_alive and (
+        not radar_has_targets or radar_target_age_fresh
+    )
 
     decision = (risk_rule.decide(radar, radar_fresh=radar_fresh)
                 if risk_rule is not None and warning_system is None else None)
@@ -155,8 +165,13 @@ def build_real_sensor_state(
     camera_ns = frame_capture_monotonic_ns or radar_start_ns
     radar_delta_ms = ((radar_sample_ns - camera_ns) / 1_000_000.0 if radar_sample_ns else None)
     gps_delta_ms = ((gps_sample_ns - camera_ns) / 1_000_000.0 if gps_sample_ns else None)
-    radar_sync_fresh = (radar_delta_ms is not None and
-                        abs(radar_delta_ms) <= float(sync_thresholds["radar_max_delta_ms"]))
+    radar_target_sync_fresh = (
+        radar_delta_ms is not None
+        and abs(radar_delta_ms) <= float(sync_thresholds["radar_max_delta_ms"])
+    )
+    radar_measurement_fresh = radar_communication_alive and (
+        not radar_has_targets or (radar_target_age_fresh and radar_target_sync_fresh)
+    )
     gps_fresh = (gps_delta_ms is not None and
                  abs(gps_delta_ms) <= float(sync_thresholds["gps_max_delta_ms"]))
 
@@ -166,13 +181,20 @@ def build_real_sensor_state(
     vision_start_ns = 0
     vision_finish_ns = 0
     if vision_adapter is not None:
-        if process_vision and frame is not None:
+        if vision_snapshot is not None:
+            vision = vision_snapshot.vision_data
+            raw_result = vision_snapshot.vision_result
+            vision_start_ns = int(vision_snapshot.vision_start_monotonic_ns)
+            vision_finish_ns = int(vision_snapshot.vision_finish_monotonic_ns)
+            inference_ms = float(vision_snapshot.inference_ms)
+        elif process_vision and frame is not None:
             vision_start_ns = time.monotonic_ns()
             vision = vision_adapter.process(frame)
             vision_finish_ns = time.monotonic_ns()
             inference_ms = float(getattr(vision, "pipeline_inference_ms", 0.0))
             if inference_ms <= 0.0:
                 inference_ms = (vision_finish_ns - vision_start_ns) / 1_000_000.0
+            raw_result = vision_adapter.get_latest_vision_result()
         else:
             vision = vision_adapter.get_latest()
             if vision is not None:
@@ -180,8 +202,8 @@ def build_real_sensor_state(
                 if inference_ms <= 0.0:
                     inference_ms = (float(getattr(vision, "detection_inference_ms", 0.0)) +
                                     float(getattr(vision, "segmentation_inference_ms", 0.0)))
-        raw_result = vision_adapter.get_latest_vision_result()
-        if raw_result is not None and fusion_engine is not None and radar_sync_fresh:
+            raw_result = vision_adapter.get_latest_vision_result()
+        if raw_result is not None and fusion_engine is not None and radar_measurement_fresh:
             fusion = fusion_engine.fuse_vision_result(raw_result, radar)
 
     timestamps = {
@@ -197,6 +219,10 @@ def build_real_sensor_state(
         "vision_start_monotonic_ns": vision_start_ns,
         "vision_finish_monotonic_ns": vision_finish_ns,
         "radar_age_ms": radar_age_ms,
+        "radar_has_targets": radar_has_targets,
+        "radar_communication_alive": radar_communication_alive,
+        "radar_target_age_fresh": radar_target_age_fresh,
+        "radar_target_sync_fresh": radar_target_sync_fresh,
         "radar_delta_ms": radar_delta_ms,
         "gps_delta_ms": gps_delta_ms,
         "vision_latency_ms": inference_ms,
@@ -211,11 +237,11 @@ def build_real_sensor_state(
             radar_to_motor_ms = (dispatch_ns - parsed_ns) / 1_000_000.0
             timestamps["radar_to_motor_latency_ms"] = radar_to_motor_ms
             timestamps["radar_parsed_to_motor_go_latency_ms"] = radar_to_motor_ms
-    if recorder is not None:
+    if recorder is not None and record_sample:
         recorder.write(
             frame, radar, gps, vision, fusion, inference_ms, timestamps,
             camera_frame_id=camera_frame_id,
-            radar_valid=bool(radar.valid) and radar_fresh,
+            radar_valid=bool(radar.valid) and radar_measurement_fresh,
             gps_valid=bool(gps.valid) and gps_fresh,
             risk_decision=warning_snapshot if warning_snapshot is not None else decision,
         )
@@ -280,7 +306,7 @@ def build_real_sensor_state(
         from src.fusion.data_types import FusionInput, IMUData, VisionData
 
         risk_radar = copy(radar)
-        risk_radar.valid = bool(radar.valid) and radar_fresh
+        risk_radar.valid = bool(radar.valid) and radar_measurement_fresh
         risk_gps = copy(gps)
         risk_gps.valid = bool(gps.valid) and gps_fresh
         risk_vision = vision if vision is not None else VisionData(timestamp=time.time(), valid=False)
@@ -379,11 +405,14 @@ def build_real_sensor_state(
                     else "Legacy adaptive risk calculation active"),
         "radar_data": {
             "connected": radar_connected,
-            "valid": bool(radar.valid) and radar_fresh,
-            "fresh": radar_fresh,
+            "valid": bool(radar.valid) and radar_measurement_fresh,
+            "fresh": radar_measurement_fresh,
             "status": radar_state,
             "reason": radar_reason,
             "diagnostics": radar_diagnostics,
+            "communication_alive": radar_communication_alive,
+            "target_age_fresh": radar_target_age_fresh,
+            "target_sync_fresh": radar_target_sync_fresh,
             "age_ms": radar_age_ms,
             "target_count": len(targets),
             "nearest_distance_m": round(float(radar.nearest_distance_m), 2),

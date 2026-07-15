@@ -25,6 +25,7 @@
 from __future__ import annotations
 
 import argparse
+import signal
 import shutil
 import statistics
 import subprocess
@@ -116,22 +117,39 @@ def _cue_vision_result_cache(vision_adapter) -> None:
         pass
 
 
-def vision_inference_loop(camera_producer, vision_adapter, stop_event: threading.Event,
+def vision_inference_loop(camera_producer, vision_adapter, snapshot_store,
+                          stop_event: threading.Event,
                           warning_system=None, vision_rule=None) -> None:
     """Run slow vision inference independently from state and cloud upload."""
     print("[VisionWorker] asynchronous inference thread started")
+    last_frame_id = -1
     while not stop_event.is_set():
         frame, capture_ns, frame_id = camera_producer.get_bgr_frame_with_timestamp()
         if frame is None:
             stop_event.wait(0.1)
             continue
-        started = time.monotonic()
+        if frame_id <= last_frame_id:
+            stop_event.wait(0.01)
+            continue
+        last_frame_id = frame_id
+        started_ns = time.monotonic_ns()
         vision_data = vision_adapter.process(frame)
         completed_ns = time.monotonic_ns()
+        vision_result = vision_adapter.get_latest_vision_result()
+        from src.dashboard.vision_snapshot import VisionSnapshot
+
+        snapshot_store.publish(VisionSnapshot(
+            source_frame_id=frame_id,
+            source_frame=frame,
+            frame_capture_monotonic_ns=capture_ns,
+            vision_start_monotonic_ns=started_ns,
+            vision_finish_monotonic_ns=completed_ns,
+            vision_data=vision_data,
+            vision_result=vision_result,
+        ))
         if warning_system is not None and vision_rule is not None:
             event = vision_rule.evaluate(
-                (vision_adapter.get_latest_vision_result()
-                 if bool(getattr(vision_data, "valid", False)) else None),
+                (vision_result if bool(getattr(vision_data, "valid", False)) else None),
                 source_frame_id=frame_id,
                 capture_monotonic_ns=capture_ns,
                 completed_monotonic_ns=completed_ns,
@@ -139,7 +157,7 @@ def vision_inference_loop(camera_producer, vision_adapter, stop_event: threading
             )
             warning_system.publish_vision(event)
         _cue_vision_result_cache(vision_adapter)
-        elapsed = time.monotonic() - started
+        elapsed = (completed_ns - started_ns) / 1_000_000_000.0
         if elapsed >= 5.0:
             print(f"[VisionWorker] inference completed in {elapsed:.2f}s")
         stop_event.wait(0.05)
@@ -193,6 +211,7 @@ def dashboard_state_loop(
     risk_rule=None,
     motor=None,
     warning_system=None,
+    vision_snapshot_store=None,
     target_stale_ms: float = 500.0,
     radar_communication_watchdog_ms: float = 2000.0,
     interval: float = 0.2,
@@ -226,6 +245,7 @@ def dashboard_state_loop(
     print(f"[StateLoop] 后台状态更新线程已启动 (mode={mode}, interval={interval:.2f}s)")
     sample_times = []
     vision_latencies = []
+    last_recorded_vision_version = 0
     while not stop_event.is_set():
         try:
             loop_start = time.monotonic()
@@ -248,10 +268,21 @@ def dashboard_state_loop(
                 if bgr_frame is not None:
                     _cue_vision_result_cache(vision_adapter)
             elif mode == "real":
-                if recorder is not None:
-                    bgr_frame, frame_capture_ns, camera_frame_id = camera_producer.get_bgr_frame_with_timestamp()
+                vision_snapshot = None
+                vision_snapshot_version = 0
+                if vision_snapshot_store is not None:
+                    vision_snapshot, vision_snapshot_version = vision_snapshot_store.get_snapshot()
+                if vision_snapshot is not None:
+                    bgr_frame = vision_snapshot.source_frame
+                    frame_capture_ns = vision_snapshot.frame_capture_monotonic_ns
+                    camera_frame_id = vision_snapshot.source_frame_id
                 else:
                     bgr_frame, frame_capture_ns, camera_frame_id = None, 0, -1
+                record_sample = bool(
+                    recorder is not None
+                    and vision_snapshot is not None
+                    and vision_snapshot_version > last_recorded_vision_version
+                )
                 state = build_real_sensor_state(
                     camera_available=camera_producer.is_available,
                     radar_reader=radar_reader,
@@ -260,6 +291,7 @@ def dashboard_state_loop(
                     frame_capture_monotonic_ns=frame_capture_ns,
                     camera_frame_id=camera_frame_id,
                     vision_adapter=vision_adapter,
+                    vision_snapshot=vision_snapshot,
                     process_vision=False,
                     fusion_engine=synchronizer,
                     recorder=recorder,
@@ -271,7 +303,10 @@ def dashboard_state_loop(
                     warning_system=warning_system,
                     target_stale_ms=target_stale_ms,
                     radar_communication_watchdog_ms=radar_communication_watchdog_ms,
+                    record_sample=record_sample,
                 )
+                if record_sample:
+                    last_recorded_vision_version = vision_snapshot_version
                 if vision_adapter is not None:
                     _cue_vision_result_cache(vision_adapter)
             else:
@@ -430,8 +465,10 @@ def main() -> None:
 
     # ── 2. 创建状态池 ──
     from src.dashboard.state_store import DashboardStateStore
+    from src.dashboard.vision_snapshot import VisionSnapshotStore
 
     state_store = DashboardStateStore()
+    vision_snapshot_store = VisionSnapshotStore()
 
     # 写入一次初始状态
     from src.dashboard.mock_state import build_mock_state
@@ -685,7 +722,8 @@ def main() -> None:
     if args.dashboard_mode == "real" and vision_adapter is not None:
         vision_thread = threading.Thread(
             target=vision_inference_loop,
-            args=(camera, vision_adapter, stop_event, warning_system, vision_warning_rule),
+            args=(camera, vision_adapter, vision_snapshot_store, stop_event,
+                  warning_system, vision_warning_rule),
             daemon=True,
             name="dashboard-vision-inference",
         )
@@ -723,6 +761,7 @@ def main() -> None:
             "risk_rule": competition_risk_rule,
             "motor": motor_controller,
             "warning_system": warning_system,
+            "vision_snapshot_store": vision_snapshot_store,
             "target_stale_ms": args.target_stale_ms,
             "radar_communication_watchdog_ms": args.radar_communication_watchdog_ms,
             "interval": interval,
@@ -762,6 +801,20 @@ def main() -> None:
         print("  IMU: disabled")
     print("=" * 55)
 
+    # Uvicorn 0.51 re-raises captured signals after its own graceful shutdown.
+    # Installing non-terminating application handlers first makes that final
+    # signal return control here so the outer finally block always seals data.
+    received_signal = threading.Event()
+
+    def _request_shutdown(signum, _frame):
+        received_signal.set()
+        print(f"[Shutdown] received signal {signum}; finalizing resources")
+
+    previous_handlers = {}
+    for shutdown_signal in (signal.SIGINT, signal.SIGTERM):
+        previous_handlers[shutdown_signal] = signal.getsignal(shutdown_signal)
+        signal.signal(shutdown_signal, _request_shutdown)
+
     try:
         uvicorn.run(
             "src.dashboard.server:app",
@@ -787,9 +840,6 @@ def main() -> None:
             vision_thread.join(timeout=10.0)
         if radar_thread is not None:
             radar_thread.join(timeout=5.0)
-        if cloud_sync is not None:
-            cloud_sync.close()
-
         # 释放 VisionAdapter
         if vision_adapter is not None:
             try:
@@ -818,6 +868,12 @@ def main() -> None:
                  str(recorder.session_dir)], check=False)
             if result.returncode != 0:
                 print(f"[QualityCheck] 录制质量检查未通过 (exit={result.returncode})")
+        # Recorder and sensors are now safely sealed. Cloud shutdown may wait
+        # on a network request, so it must never delay session finalization.
+        if cloud_sync is not None:
+            cloud_sync.close()
+        for shutdown_signal, previous_handler in previous_handlers.items():
+            signal.signal(shutdown_signal, previous_handler)
 
 
 

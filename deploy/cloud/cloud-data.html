@@ -33,7 +33,7 @@
   </section>
   <section class="two">
     <div class="panel"><h2>最近一小时骑行数据</h2><div class="scroll"><table><thead><tr><th>时间</th><th>速度</th><th>雷达</th><th>视觉</th><th>距离</th><th>TTC</th><th>风险</th></tr></thead><tbody id="rows"></tbody></table></div></div>
-    <div class="panel"><h2>最近一小时视频</h2><div id="videos" class="videos"></div><video id="player" controls preload="metadata"></video></div>
+    <div class="panel"><h2>最近一小时视频</h2><div id="videos" class="videos"></div><video id="player" controls playsinline preload="metadata"></video><div id="video-error" class="bad"></div></div>
   </section>
 </main>
 <script>
@@ -43,13 +43,14 @@ function device(){return encodeURIComponent($('device').value.trim()||'bike-001'
 let selectedVideoUrl='';
 async function latest(){const d=await json(`/api/ride-samples/latest?device_id=${device()}&_=${Date.now()}`);$('speed').textContent=fmt(d.speed_kmh,' km/h');$('risk').textContent=fmt(d.risk_score);$('targets').textContent=d.radar_valid?d.target_count:'无效';$('obstacles').textContent=d.vision_valid?d.obstacle_count:'无效';$('distance').textContent=d.radar_valid?fmt(d.nearest_distance_m,' m'):'--';$('drivable').textContent=d.drivable_area_ratio==null?'--':`${(d.drivable_area_ratio*100).toFixed(1)}%`;$('status').innerHTML=`<span class="ok">● 实时更新</span>　设备 ${d.device_id}　最后采集 ${new Date(d.collected_at).toLocaleString()}`;return d}
 async function recent(){const d=await json(`/api/ride-samples/recent?device_id=${device()}&minutes=60&limit=3600`);$('rows').innerHTML=d.items.slice().reverse().map(x=>`<tr><td>${new Date(x.collected_at).toLocaleTimeString()}</td><td>${fmt(x.speed_kmh)}</td><td>${x.radar_valid?x.target_count:'无效'}</td><td>${x.vision_valid?x.obstacle_count:'无效'}</td><td>${fmt(x.nearest_distance_m)}</td><td>${fmt(x.min_ttc_s)}</td><td>${fmt(x.risk_score)} / ${x.risk_level}</td></tr>`).join('')}
-function selectVideo(url,button){if(selectedVideoUrl!==url){selectedVideoUrl=url;$('player').src=url;$('player').load()}document.querySelectorAll('.videos button').forEach(v=>v.classList.remove('active'));button.classList.add('active')}
+function selectVideo(url,button){$('video-error').textContent='';if(selectedVideoUrl!==url){selectedVideoUrl=url;$('player').src=url;$('player').load()}document.querySelectorAll('.videos button').forEach(v=>v.classList.remove('active'));button.classList.add('active')}
 async function videoList(){const d=await json(`/api/video-segments/recent?device_id=${device()}&minutes=60`);const urls=new Set(d.items.map(x=>x.video_url));if(selectedVideoUrl&&!urls.has(selectedVideoUrl)){selectedVideoUrl='';$('player').removeAttribute('src')}$('videos').innerHTML='';d.items.forEach((x,i)=>{const b=document.createElement('button');b.textContent=`${new Date(x.started_at).toLocaleTimeString()} · ${Number(x.duration_s).toFixed(0)}s`;b.onclick=()=>selectVideo(x.video_url,b);$('videos').appendChild(b);if(x.video_url===selectedVideoUrl)b.classList.add('active');if(i===0&&!selectedVideoUrl)selectVideo(x.video_url,b)});if(!d.items.length){$('videos').textContent='最近一小时暂无视频';$('player').removeAttribute('src')}}
 async function refreshLatest(){try{await latest()}catch(e){$('status').innerHTML=`<span class="bad">● 数据不可用</span>　${e.message}`}}
 async function refreshHistory(){try{await recent()}catch(e){console.error(e)}}
 async function refreshVideos(){try{await videoList()}catch(e){console.error(e)}}
 function refreshAll(){refreshLatest();refreshHistory();refreshVideos()}
 refreshAll();setInterval(refreshLatest,1000);setInterval(refreshHistory,3000);setInterval(refreshVideos,15000);
+$('player').addEventListener('error',()=>{$('video-error').textContent='视频无法播放：请确认文件使用 H.264/AVC 编码，或检查网络连接。'});
 </script>
 </body>
 </html>

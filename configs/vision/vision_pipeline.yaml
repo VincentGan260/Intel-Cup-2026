@@ -8,6 +8,11 @@ source: https://ultralytics.com/images/bus.jpg
 enable_segmentation: true
 enable_parallel_inference: true
 
+# 检测与分割处理同一帧，分别在 NPU/GPU 上同时执行。
+# 这是所有 VisionAdapter 正式入口共用的全局设置，不是测试脚本专用开关。
+execution:
+  parallel_inference: true
+
 # Dashboard 正式推理部署契约；VisionAdapter 启动时会校验，避免配置漂移。
 deployment_contract:
   detection: {precision: INT8, device: NPU}

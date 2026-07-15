@@ -136,12 +136,20 @@ class VisionAdapter:
                             )
 
             # 4. 构建管线
+            execution_cfg = dict(self._config.get("execution", {}))
+            parallel_inference = bool(execution_cfg.get(
+                "parallel_inference",
+                self._config.get("enable_parallel_inference", True),
+            ))
             self._pipeline = VisionPipeline(
                 detector=detector,
                 segmenter=segmenter,
                 enable_segmentation=enable_seg,
-                enable_parallel_inference=bool(self._config.get("enable_parallel_inference", True)),
+                parallel_inference=parallel_inference,
             )
+            self._runtime_info["execution"] = {
+                "parallel_inference": parallel_inference and enable_seg and segmenter is not None,
+            }
 
             # 5. 打开摄像头（可选）
             if self.use_camera:
@@ -157,6 +165,10 @@ class VisionAdapter:
                          if seg_runtime else "OFF")
             print(f"[VisionAdapter] 部署: detection={det_runtime['precision']}@{det_runtime['device']}, "
                   f"segmentation={seg_label}")
+            print(
+                "[VisionAdapter] 推理: "
+                + ("GPU/NPU 并行" if self._runtime_info["execution"]["parallel_inference"] else "串行")
+            )
             if not enable_seg:
                 print("[VisionAdapter]   → 分割已禁用（仅检测）")
 
@@ -182,7 +194,9 @@ class VisionAdapter:
                 pass
             self._cap = None
             print("[VisionAdapter] 摄像头已释放")
-        self._pipeline = None
+        if self._pipeline is not None:
+            self._pipeline.close()
+            self._pipeline = None
         print("[VisionAdapter] 已停止")
 
     # ---- 核心接口 ----

@@ -10,6 +10,7 @@ from __future__ import annotations
 import dataclasses
 import hashlib
 import json
+import os
 import platform
 import subprocess
 import threading
@@ -56,6 +57,7 @@ class DashboardRecorder:
         self._lock = threading.Lock()
         self._started_mono_ns = time.monotonic_ns()
         self._count = 0
+        self._closed = False
         self._risk_label = risk_label
         cfg = recording_config or {}
         project_root = Path(__file__).resolve().parents[2]
@@ -68,6 +70,7 @@ class DashboardRecorder:
         except Exception:
             git_commit = ""
         self._meta = {"schema_version": int(cfg.get("schema_version", 2)),
+                      "status": "recording", "sample_count": 0,
                       "scene": scene, "profile": profile,
                       "host": platform.node(), "started_wall_time_ns": time.time_ns(),
                       "started_monotonic_ns": self._started_mono_ns,
@@ -78,8 +81,8 @@ class DashboardRecorder:
                       "model_path": model_path, "vision_config": vision_config,
                       "vision_runtime": vision_runtime or {},
                       "git_commit": git_commit,
-                      "model_sha256": _sha256(model_abs),
-                      "vision_config_sha256": _sha256(vision_abs),
+                      "model_sha256": _sha256(model_abs) if model_path else "",
+                      "vision_config_sha256": _sha256(vision_abs) if vision_config else "",
                       "versions": cfg.get("versions", {}), "labels": cfg.get("labels", {}),
                       "contains": ["raw_frame", "radar", "gps", "vision_features", "vision_radar_fusion"]}
         self._meta.update(session_fields or {})
@@ -87,8 +90,11 @@ class DashboardRecorder:
         self._write_meta()
 
     def _write_meta(self) -> None:
-        (self.session_dir / "session.json").write_text(
+        path = self.session_dir / "session.json"
+        temporary = path.with_suffix(".json.tmp")
+        temporary.write_text(
             json.dumps(self._meta, ensure_ascii=False, indent=2), encoding="utf-8")
+        temporary.replace(path)
 
     def write(self, frame, radar, gps, vision, fusion, inference_ms: float,
               timestamps: dict, *, camera_frame_id: int,
@@ -173,14 +179,31 @@ class DashboardRecorder:
             "label": {"risk_level": self._risk_label, "event_id": None, "note": ""},
         }
         with self._lock:
+            if self._closed:
+                raise RuntimeError("DashboardRecorder is already closed")
             self._file.write(json.dumps(row, ensure_ascii=False, separators=(",", ":")) + "\n")
+            self._file.flush()
             self._count += 1
+            # Keep metadata recoverable even if the process is interrupted
+            # before the normal shutdown path reaches close().
+            self._meta.update({
+                "sample_count": self._count,
+                "last_sample_id": self._count - 1,
+                "checkpoint_wall_time_ns": time.time_ns(),
+            })
+            self._write_meta()
 
     def close(self) -> None:
         with self._lock:
+            if self._closed:
+                return
             if not self._file.closed:
+                self._file.flush()
+                os.fsync(self._file.fileno())
                 self._file.close()
-            self._meta.update({"ended_wall_time_ns": time.time_ns(), "sample_count": self._count})
+            self._closed = True
+            self._meta.update({"status": "complete", "ended_wall_time_ns": time.time_ns(),
+                               "sample_count": self._count})
             self._write_meta()
             if self._risk_label is not None and self._count > 0:
                 event = {"event_id": "session-000", "start_sample_id": 0,
