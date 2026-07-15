@@ -131,6 +131,12 @@ class RadarReader(BaseSensorReader):
         self._buffer = bytearray()
         self.last_sample_monotonic_ns: int = 0
         self._last_valid_data: Optional[RadarData] = None
+        self.bytes_received: int = 0
+        self.valid_frame_count: int = 0
+        self.invalid_frame_count: int = 0
+        self.last_byte_monotonic_ns: int = 0
+        self.last_valid_frame_monotonic_ns: int = 0
+        self.last_error: str = ""
         self.approaching_direction_code = int(self.config.get("approaching_direction_code", 1))
         if self.approaching_direction_code not in (0, 1):
             raise ValueError("radar approaching_direction_code must be 0 or 1")
@@ -151,10 +157,17 @@ class RadarReader(BaseSensorReader):
                 self._buffer = bytearray()
                 self._last_valid_data = None
                 self.last_sample_monotonic_ns = 0
+                self.bytes_received = 0
+                self.valid_frame_count = 0
+                self.invalid_frame_count = 0
+                self.last_byte_monotonic_ns = 0
+                self.last_valid_frame_monotonic_ns = 0
+                self.last_error = ""
                 print(f"[RadarReader] 已打开串口 {port} @ {baudrate}")
             except Exception as e:
                 print(f"[RadarReader] 串口打开失败: {e}")
                 self._serial = None
+                self.last_error = str(e)
         else:
             print("[RadarReader] mock 模式启动")
 
@@ -190,6 +203,16 @@ class RadarReader(BaseSensorReader):
         self._latest = result
         return result
 
+    def get_diagnostics(self) -> dict:
+        return {
+            "bytes_received": int(self.bytes_received),
+            "valid_frame_count": int(self.valid_frame_count),
+            "invalid_frame_count": int(self.invalid_frame_count),
+            "last_byte_monotonic_ns": int(self.last_byte_monotonic_ns),
+            "last_valid_frame_monotonic_ns": int(self.last_valid_frame_monotonic_ns),
+            "last_error": self.last_error,
+        }
+
     # ---- real ----
 
     def _read_real(self, ts: float) -> RadarData:
@@ -202,6 +225,9 @@ class RadarReader(BaseSensorReader):
             if self._serial.in_waiting > 0:
                 chunk = self._serial.read(self._serial.in_waiting)
                 self._buffer.extend(chunk)
+                self.bytes_received += len(chunk)
+                if chunk:
+                    self.last_byte_monotonic_ns = time.monotonic_ns()
 
             if len(self._buffer) > 4096:
                 self._buffer = self._buffer[-2048:]
@@ -213,6 +239,8 @@ class RadarReader(BaseSensorReader):
                 # LD2451 has no hardware timestamp. Only a successfully parsed
                 # complete frame may refresh the host receive timestamp.
                 self.last_sample_monotonic_ns = time.monotonic_ns()
+                self.last_valid_frame_monotonic_ns = self.last_sample_monotonic_ns
+                self.valid_frame_count += 1
                 targets = []
                 nearest = -1.0
                 min_ttc = -1.0
@@ -286,6 +314,7 @@ class RadarReader(BaseSensorReader):
             )
             if result is not None:
                 return result
+            self.invalid_frame_count += 1
 
     # ---- mock ----
 

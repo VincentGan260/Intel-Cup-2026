@@ -158,11 +158,29 @@ def build_hybrid_state(
                 "speed": round(weights.get("speed", 0.0), 4),
             },
             "sensors": {
-                "camera": camera_available,
+                "camera": "real" if camera_available else "off",
                 "vision": vision_mode,
                 "radar": "mock",
                 "imu": imu_mode,
                 "gps": "mock",
+                "motor": "mock",
+            },
+            "hardware_status": {
+                "camera": {
+                    "status": "active" if camera_available else "unavailable",
+                    "reason": "camera is open" if camera_available else "camera is not available",
+                },
+                "vision": {
+                    "status": "active" if vision_mode == "real" else "mock" if vision_mode == "mock" else "disabled",
+                    "reason": "vision is active" if vision_mode == "real" else "vision is not using real perception",
+                },
+                "radar": {"status": "mock", "reason": "radar is simulated in hybrid mode"},
+                "gps": {"status": "mock", "reason": "gps is simulated in hybrid mode"},
+                "imu": {
+                    "status": "active" if imu.valid else "mock" if imu_mode == "mock" else "invalid",
+                    "reason": "imu is producing valid data" if imu.valid else "imu data is not valid",
+                },
+                "motor": {"status": "mock", "reason": "motor is simulated in hybrid mode"},
             },
             "mode": "hybrid",
             "message": f"hybrid active | vision={vision_mode} | imu={imu_mode}",

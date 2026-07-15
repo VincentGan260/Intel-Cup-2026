@@ -18,6 +18,88 @@ def _dispatch_motor(motor, decision) -> int:
     return 0
 
 
+def _radar_diagnostic_state(
+    *,
+    connected: bool,
+    raw_valid: bool,
+    fresh: bool,
+    target_count: int,
+    diagnostics: dict,
+    age_ms: float | None,
+) -> tuple[str, str]:
+    if not connected:
+        return "port_closed", "radar serial port is not open"
+    if not raw_valid:
+        if int(diagnostics.get("bytes_received", 0) or 0) <= 0:
+            return "no_bytes", "serial port is open but no radar bytes have arrived"
+        if int(diagnostics.get("valid_frame_count", 0) or 0) <= 0:
+            return "no_valid_frame", "bytes arrived but no complete valid radar frame was decoded"
+        return "read_invalid", "latest radar read did not produce a valid frame"
+    if not fresh:
+        return "stale", f"last valid radar frame is stale ({age_ms:.0f} ms)" if age_ms is not None else "no radar sample timestamp"
+    if target_count <= 0:
+        return "no_target", "radar is healthy and currently reports no target"
+    return "tracking", "radar is healthy and tracking target(s)"
+
+
+def _gps_diagnostic_state(
+    *,
+    connected: bool,
+    raw_valid: bool,
+    sync_fresh: bool,
+    fix_quality: int,
+    diagnostics: dict,
+) -> tuple[str, str]:
+    if not connected:
+        return "port_closed", "gps serial port is not open"
+    if not raw_valid:
+        if int(diagnostics.get("bytes_received", 0) or 0) <= 0:
+            return "no_bytes", "serial port is open but no gps bytes have arrived"
+        if int(diagnostics.get("valid_sentence_count", 0) or 0) <= 0:
+            return "no_valid_sentence", "bytes arrived but no checksum-valid nmea sentence was decoded"
+        if not bool(diagnostics.get("gga_fresh", False)):
+            return "stale_gga", "gps position sentence is stale or missing"
+        if not bool(diagnostics.get("rmc_fresh", False)):
+            return "stale_rmc", "gps speed/status sentence is stale or missing"
+        if fix_quality <= 0:
+            return "no_fix", "gps is receiving data but has no positioning fix"
+        return "invalid_fix", "gps data is present but not usable yet"
+    if not sync_fresh:
+        return "sync_stale", "gps sample is valid but not synchronized with the camera frame"
+    return "active", "gps is healthy and synchronized"
+
+
+def _camera_diagnostic_state(camera_available: bool) -> tuple[str, str]:
+    if camera_available:
+        return "active", "camera is open and frames are being produced"
+    return "unavailable", "camera is not available or no frame can be read"
+
+
+def _vision_diagnostic_state(vision_adapter, vision_valid: bool, vision) -> tuple[str, str]:
+    if vision_adapter is None:
+        return "disabled", "vision pipeline is not configured"
+    if not bool(getattr(vision_adapter, "vision_enabled", False)):
+        return "disabled", "vision pipeline is disabled or failed to initialize"
+    if vision is None:
+        return "waiting", "vision pipeline is enabled but no result has been produced yet"
+    if vision_valid:
+        return "active", "vision pipeline is producing valid perception results"
+    return "invalid", "vision pipeline returned an invalid result"
+
+
+def _motor_diagnostic_state(motor) -> tuple[str, str]:
+    if motor is None:
+        return "disabled", "motor controller is not configured"
+    mode = str(getattr(motor, "mode", "unknown"))
+    if mode == "mock":
+        return "mock", "motor controller is running in mock mode"
+    if mode == "real" and getattr(motor, "_bus", None) is not None:
+        return "active", "motor controller is connected to the haptic driver"
+    if mode == "real":
+        return "unavailable", "motor controller is in real mode but the i2c bus is not open"
+    return "unknown", "motor controller state is unknown"
+
+
 def build_real_sensor_state(
     camera_available: bool,
     radar_reader,
@@ -150,6 +232,36 @@ def build_real_sensor_state(
     radar_connected = getattr(radar_reader, "_serial", None) is not None
     gps_connected = getattr(gps_reader, "_serial", None) is not None
     vision_valid = bool(vision is not None and vision.valid)
+    radar_diagnostics = (radar_reader.get_diagnostics()
+                         if hasattr(radar_reader, "get_diagnostics") else {})
+    gps_diagnostics = (gps_reader.get_diagnostics()
+                       if hasattr(gps_reader, "get_diagnostics") else {})
+    radar_state, radar_reason = _radar_diagnostic_state(
+        connected=radar_connected,
+        raw_valid=bool(radar.valid),
+        fresh=radar_fresh,
+        target_count=len(targets),
+        diagnostics=radar_diagnostics,
+        age_ms=radar_age_ms,
+    )
+    gps_state, gps_reason = _gps_diagnostic_state(
+        connected=gps_connected,
+        raw_valid=bool(gps.valid),
+        sync_fresh=gps_fresh,
+        fix_quality=int(getattr(gps, "fix_quality", 0) or 0),
+        diagnostics=gps_diagnostics,
+    )
+    camera_state, camera_reason = _camera_diagnostic_state(bool(camera_available))
+    vision_state, vision_reason = _vision_diagnostic_state(vision_adapter, vision_valid, vision)
+    motor_state, motor_reason = _motor_diagnostic_state(motor)
+    hardware_status = {
+        "camera": {"status": camera_state, "reason": camera_reason},
+        "vision": {"status": vision_state, "reason": vision_reason},
+        "radar": {"status": radar_state, "reason": radar_reason, "diagnostics": radar_diagnostics},
+        "gps": {"status": gps_state, "reason": gps_reason, "diagnostics": gps_diagnostics},
+        "imu": {"status": "disabled", "reason": "imu is not part of this dashboard mode"},
+        "motor": {"status": motor_state, "reason": motor_reason},
+    }
     fused_items = None
     fused_weights = {}
     if warning_snapshot is not None:
@@ -246,11 +358,17 @@ def build_real_sensor_state(
                        "urgent_ttc_s": risk_rule_state["urgent_ttc_s"]},
         "weights": fused_weights,
         "sensors": {
-            "camera": bool(camera_available),
-            "vision": "real" if vision_valid else "off",
-            "radar": "real" if radar_connected else "off",
-            "gps": "real" if gps_connected else "off",
+            "camera": "real" if camera_state == "active" else "invalid",
+            "vision": ("real" if vision_state == "active"
+                       else "invalid" if vision_state in {"waiting", "invalid"}
+                       else "off"),
+            "radar": ("real" if radar_state in {"tracking", "no_target"}
+                      else "invalid" if radar_connected else "off"),
+            "gps": "real" if gps_state == "active" else "invalid" if gps_connected else "off",
+            "imu": "off",
+            "motor": "mock" if motor_state == "mock" else "real" if motor_state == "active" else "off",
         },
+        "hardware_status": hardware_status,
         "mode": "real-recording" if recorder is not None else "real-sensors",
         "message": ("Parallel radar/vision warning arbitration active; no modality weights"
                     if warning_snapshot is not None
@@ -259,6 +377,9 @@ def build_real_sensor_state(
             "connected": radar_connected,
             "valid": bool(radar.valid) and radar_fresh,
             "fresh": radar_fresh,
+            "status": radar_state,
+            "reason": radar_reason,
+            "diagnostics": radar_diagnostics,
             "age_ms": radar_age_ms,
             "target_count": len(targets),
             "nearest_distance_m": round(float(radar.nearest_distance_m), 2),
@@ -267,6 +388,10 @@ def build_real_sensor_state(
         },
         "gps_data": {
             "connected": gps_connected, "valid": bool(gps.valid) and gps_fresh,
+            "fresh": gps_fresh,
+            "status": gps_state,
+            "reason": gps_reason,
+            "diagnostics": gps_diagnostics,
             "speed_kmh": round(float(gps.speed_kmh), 2),
             "latitude": round(float(gps.latitude), 7),
             "longitude": round(float(gps.longitude), 7),

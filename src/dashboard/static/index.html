@@ -376,7 +376,13 @@
   }
 
   /* ── Risk Score ── */
-  .risk-main { text-align: center; padding: 20px 16px; }
+  .risk-main {
+    text-align: center;
+    padding: 20px 16px;
+    position: sticky;
+    top: 0;
+    z-index: 2;
+  }
   .risk-score {
     font-size: 56px;
     font-weight: 700;
@@ -605,22 +611,16 @@
         </div>
       </div>
 
-      <!-- Risk Breakdown -->
-      <div class="card">
-        <div class="card-title">风险分解</div>
-        <div id="risk-items-container"></div>
+      <!-- Real sensor data -->
+      <div class="card" id="sensor-data-card">
+        <div class="card-title">实时传感器数据</div>
+        <div id="sensor-data-container"></div>
       </div>
 
       <!-- Sensor Status -->
       <div class="card">
         <div class="card-title">传感器状态</div>
         <div id="sensors-container"></div>
-      </div>
-
-      <!-- Real sensor data -->
-      <div class="card" id="sensor-data-card">
-        <div class="card-title">实时传感器数据</div>
-        <div id="sensor-data-container"></div>
       </div>
 
       <!-- Mode -->
@@ -630,12 +630,6 @@
           <span class="sensor-indicator mock"></span>
           <span id="mode-text" style="font-family:var(--font-mono); font-size:13px;">mock</span>
         </div>
-      </div>
-
-      <!-- Vision Perception -->
-      <div class="card" id="vision-card">
-        <div class="card-title">视觉感知结果</div>
-        <div id="vision-details-container"></div>
       </div>
 
       <!-- Runtime -->
@@ -674,25 +668,8 @@
   let videoReconnectAttempt = 0;
   let lastVideoRestartAt = 0;
 
-  const sensorNames = ["camera", "vision", "radar", "gps"];
-  const sensorLabels = {"camera":"摄像头","vision":"视觉","radar":"雷达","gps":"GPS"};
-  const riskItemNames = ["obs", "dist", "speed"];
-  const riskItemLabels = {"obs":"视觉风险","dist":"距离风险","speed":"速度风险"};
-
-  const itemsContainer = $("risk-items-container");
-  const ids = {};
-  riskItemNames.forEach(k => {
-    const div = document.createElement("div");
-    div.className = "risk-item-row";
-    div.innerHTML =
-      '<span class="risk-item-label">' + riskItemLabels[k] + '</span>' +
-      '<div class="risk-item-bar"><div class="risk-item-fill" id="item-fill-' + k + '"></div></div>' +
-      '<span class="risk-item-val" id="item-val-' + k + '">0.00</span>';
-    itemsContainer.appendChild(div);
-    ids[k + "_fill"] = "item-fill-" + k;
-    ids[k + "_val"] = "item-val-" + k;
-  });
-
+  const sensorNames = ["camera", "radar", "gps", "imu", "motor"];
+  const sensorLabels = {"camera":"摄像头","radar":"雷达","gps":"定位模块","imu":"IMU","motor":"马达"};
   const sensorsContainer = $("sensors-container");
   sensorNames.forEach(k => {
     const div = document.createElement("div");
@@ -703,8 +680,8 @@
     sensorsContainer.appendChild(div);
   });
 
-  const sensorDataFields = ["radar_targets", "radar_nearest", "radar_ttc", "gps_speed", "gps_position", "gps_fix"];
-  const sensorDataLabels = {"radar_targets":"雷达目标数","radar_nearest":"最近距离","radar_ttc":"最小 TTC","gps_speed":"GPS 速度","gps_position":"经纬度","gps_fix":"定位质量"};
+  const sensorDataFields = ["vision_objects", "vision_confidence", "vision_drivable", "radar_targets", "radar_nearest", "radar_ttc", "gps_speed", "gps_position"];
+  const sensorDataLabels = {"vision_objects":"视觉目标数","vision_confidence":"最高置信度","vision_drivable":"可行驶区域","radar_targets":"雷达目标数","radar_nearest":"最近距离","radar_ttc":"最小 TTC","gps_speed":"速度","gps_position":"经纬度"};
   const sensorDataIds = {};
   const sensorDataContainer = $("sensor-data-container");
   sensorDataFields.forEach(k => {
@@ -717,34 +694,62 @@
     sensorDataIds[k] = "sensor-data-" + k;
   });
 
-  const visionFields = ["valid","object_count","person_count","vehicle_count","max_confidence","drivable_area_ratio"];
-  const visionFieldLabels = {"valid":"Vision 有效","object_count":"目标数量","person_count":"行人数量","vehicle_count":"车辆数量","max_confidence":"最高置信度","drivable_area_ratio":"可行驶区域比例"};
-  const visionFieldBars = {"max_confidence":true,"drivable_area_ratio":true};
-  const vdIds = {};
-  const vdContainer = $("vision-details-container");
-  visionFields.forEach(k => {
-    const div = document.createElement("div");
-    div.className = "vd-row";
-    if (visionFieldBars[k]) {
-      div.innerHTML =
-        '<span class="vd-label">' + visionFieldLabels[k] + '</span>' +
-        '<div class="vd-bar"><div class="vd-bar-fill" id="vd-bar-' + k + '"></div></div>' +
-        '<span class="vd-val" id="vd-val-' + k + '">0.00</span>';
-      vdIds[k + "_bar"] = "vd-bar-" + k;
-    } else {
-      div.innerHTML =
-        '<span class="vd-label">' + visionFieldLabels[k] + '</span>' +
-        '<span class="vd-val" id="vd-val-' + k + '">-</span>';
-    }
-    vdContainer.appendChild(div);
-    vdIds[k + "_val"] = "vd-val-" + k;
-  });
+  const hardwareStatusLabels = {
+    "active": "正常",
+    "tracking": "正常：检测到目标",
+    "no_target": "正常：暂无目标",
+    "mock": "模拟模式",
+    "waiting": "等待数据",
+    "disabled": "未启用",
+    "unavailable": "不可用",
+    "invalid": "异常：无效数据",
+    "port_closed": "异常：端口未打开",
+    "no_bytes": "异常：无数据",
+    "no_valid_sentence": "异常：无合法 NMEA",
+    "no_valid_frame": "异常：未解析到合法帧",
+    "stale": "异常：数据过期",
+    "stale_gga": "异常：定位句过期",
+    "stale_rmc": "异常：速度句过期",
+    "no_fix": "异常：未定位",
+    "invalid_fix": "异常：定位不可用",
+    "sync_stale": "异常：同步过期",
+    "read_invalid": "异常：读取无效",
+    "unknown": "未知"
+  };
+  const hardwareReasonLabels = {
+    "camera.active": "摄像头已打开，视觉模型正常输出",
+    "camera.waiting": "摄像头可用，视觉模型正在等待结果",
+    "camera.disabled": "摄像头或视觉模型未启用",
+    "camera.unavailable": "摄像头不可用或视觉模型未正常输出",
+    "camera.invalid": "摄像头画面或视觉输出异常",
+    "camera.active": "摄像头已打开并正在提供画面",
+    "camera.unavailable": "摄像头不可用或无法读取画面",
+    "vision.active": "视觉模型正在输出有效结果",
+    "vision.waiting": "视觉已启用，正在等待第一帧结果",
+    "vision.disabled": "视觉未启用或初始化失败",
+    "vision.invalid": "视觉输出无效，需检查模型或输入画面",
+    "gps.active": "定位模块数据有效且与当前画面同步",
+    "gps.no_fix": "定位模块有数据但尚未定位，室内或天线遮挡时常见",
+    "gps.no_bytes": "串口已打开但没有收到定位模块数据",
+    "gps.no_valid_sentence": "收到字节但没有校验通过的 NMEA 语句",
+    "gps.stale_gga": "定位语句过期或缺失",
+    "gps.stale_rmc": "速度/状态语句过期或缺失",
+    "gps.sync_stale": "定位模块本身有效，但与画面同步时间差过大",
+    "gps.port_closed": "定位模块串口未打开，检查端口、权限或占用",
+    "imu.active": "IMU 正在输出有效姿态/运动数据",
+    "imu.mock": "IMU 处于模拟模式",
+    "imu.disabled": "IMU 当前模式未启用",
+    "imu.invalid": "IMU 数据无效，需检查串口或初始化",
+    "motor.active": "马达控制器已连接到触觉驱动芯片",
+    "motor.mock": "马达处于模拟模式，不会真实震动",
+    "motor.disabled": "马达控制器未配置",
+    "motor.unavailable": "马达为真实模式但 I2C 总线未打开"
+  };
 
-  const runtimeFields = ["backend_uptime_sec","state_hz","actual_sample_hz","last_update_time","camera_available","vision_enabled","vision_status","object_count","state_loop_ms","vision_infer_ms","vision_p50_ms","vision_p95_ms"];
+  const runtimeFields = ["backend_uptime_sec","last_update_time","state_hz","actual_sample_hz","vision_infer_ms"];
   const runtimeLabels = {
-    "backend_uptime_sec":"后端运行时长","state_hz":"状态更新频率","last_update_time":"最后更新时间",
-    "camera_available":"摄像头状态","vision_enabled":"Vision 启用","vision_status":"Vision 状态",
-    "object_count":"当前目标数量","state_loop_ms":"状态循环耗时","vision_infer_ms":"Vision 推理耗时","actual_sample_hz":"最近有效采样率","vision_p50_ms":"Vision P50 延迟","vision_p95_ms":"Vision P95 延迟"
+    "backend_uptime_sec":"后端运行时长","last_update_time":"最后更新时间",
+    "state_hz":"目标刷新频率","actual_sample_hz":"实际刷新频率","vision_infer_ms":"视觉推理耗时"
   };
   const rtIds = {};
   const rtContainer = $("runtime-container");
@@ -858,6 +863,45 @@
     return typeof value === "number" && Number.isFinite(value) ? value : fallback;
   }
 
+  function hardwareLabel(status) {
+    return hardwareStatusLabels[status] || String(status || "--");
+  }
+
+  function hardwareReason(kind, item) {
+    const status = item && item.status ? item.status : "unknown";
+    return hardwareReasonLabels[kind + "." + status] || (item && item.reason ? String(item.reason) : "--");
+  }
+
+  function hardwareColor(status) {
+    if (status === "active" || status === "tracking" || status === "no_target") return "var(--green)";
+    if (status === "mock" || status === "waiting") return "var(--yellow)";
+    if (status === "disabled") return "var(--text-tertiary)";
+    return "var(--red)";
+  }
+
+  function mergedCameraStatus(hardware) {
+    const camera = hardware.camera || {};
+    const vision = hardware.vision || {};
+    const cameraStatus = camera.status || "unknown";
+    const visionStatus = vision.status || "unknown";
+    if (cameraStatus === "active" && visionStatus === "active") {
+      return {status: "active", reason: "摄像头和视觉模型均正常工作"};
+    }
+    if (cameraStatus === "active" && visionStatus === "waiting") {
+      return {status: "waiting", reason: "摄像头正常，视觉模型正在等待结果"};
+    }
+    if (cameraStatus === "unavailable") {
+      return {status: "unavailable", reason: hardwareReason("camera", camera)};
+    }
+    if (visionStatus === "disabled") {
+      return {status: "disabled", reason: hardwareReason("vision", vision)};
+    }
+    if (visionStatus && visionStatus !== "unknown") {
+      return {status: visionStatus, reason: hardwareReason("vision", vision)};
+    }
+    return {status: "unknown", reason: "摄像头状态未知"};
+  }
+
   function normalizeState(raw) {
     const source = raw && typeof raw === "object" ? raw : {};
     const items = source.risk_items && typeof source.risk_items === "object" ? source.risk_items : {};
@@ -865,6 +909,7 @@
     const gps = source.gps_data && typeof source.gps_data === "object" ? source.gps_data : {};
     const vision = source.vision_details && typeof source.vision_details === "object" ? source.vision_details : {};
     const runtime = source.runtime && typeof source.runtime === "object" ? source.runtime : {};
+    const hardware = source.hardware_status && typeof source.hardware_status === "object" ? source.hardware_status : {};
     const latitude = finiteNumber(gps.latitude, null);
     const longitude = finiteNumber(gps.longitude, null);
     return Object.assign({}, source, {
@@ -875,16 +920,20 @@
         speed: Math.max(0, Math.min(1, finiteNumber(items.speed, 0)))
       },
       sensors: source.sensors && typeof source.sensors === "object" ? source.sensors : {},
+      hardware_status: hardware,
       radar_data: Object.assign({}, radar, {
         target_count: finiteNumber(radar.target_count, null),
         nearest_distance_m: finiteNumber(radar.nearest_distance_m, -1),
-        min_ttc_s: finiteNumber(radar.min_ttc_s, -1)
+        min_ttc_s: finiteNumber(radar.min_ttc_s, -1),
+        age_ms: finiteNumber(radar.age_ms, null),
+        status: typeof radar.status === "string" ? radar.status : (radar.valid ? (finiteNumber(radar.target_count, 0) > 0 ? "tracking" : "no_target") : "read_invalid")
       }),
       gps_data: Object.assign({}, gps, {
         valid: Boolean(gps.valid) && latitude !== null && longitude !== null,
         latitude: latitude,
         longitude: longitude,
-        speed_kmh: finiteNumber(gps.speed_kmh, null)
+        speed_kmh: finiteNumber(gps.speed_kmh, null),
+        status: typeof gps.status === "string" ? gps.status : (gps.valid ? "active" : "invalid")
       }),
       vision_details: Object.assign({}, vision, {
         objects: Array.isArray(vision.objects) ? vision.objects : []
@@ -922,36 +971,40 @@
       }
       bar.style.width = pct;
 
-      riskItemNames.forEach(k=>{const v=s.risk_items[k]||0;$(ids[k+"_fill"]).style.width=(v*100).toFixed(1)+"%";$(ids[k+"_val"]).textContent=v.toFixed(2);});
-
-      const sensors=s.sensors||{};
+      const sensors=s.sensors||{}, hardware=s.hardware_status||{};
       sensorNames.forEach(k=>{
         const val=sensors[k],dot=$("sen-dot-"+k),modeEl=$("sen-mode-"+k);
+        const hw=k==="camera"?mergedCameraStatus(hardware):(hardware[k]||{});
+        const hwStatus=hw.status;
+        if(hwStatus){
+          modeEl.textContent=hardwareLabel(hwStatus);
+          modeEl.style.color=hardwareColor(hwStatus);
+          modeEl.title=hardwareReason(k, hw);
+        }
         if(val===true||(typeof val==="boolean"&&val)){dot.className="sensor-indicator on";modeEl.textContent="real";modeEl.style.color="var(--green)";}
         else if(val===false||(typeof val==="boolean"&&!val)){dot.className="sensor-indicator off";modeEl.textContent="off";modeEl.style.color="var(--red)";}
         else if(val==="real"){dot.className="sensor-indicator on";modeEl.textContent="real";modeEl.style.color="var(--green)";}
         else if(val==="off"||val==="invalid"){dot.className="sensor-indicator off";modeEl.textContent=String(val);modeEl.style.color="var(--red)";}
         else{dot.className="sensor-indicator mock";modeEl.textContent=String(val);modeEl.style.color="var(--yellow)";}
+        if(hwStatus){
+          modeEl.textContent=hardwareLabel(hwStatus);
+          modeEl.style.color=hardwareColor(hwStatus);
+          modeEl.title=hardwareReason(k, hw);
+        }
       });
 
       $("mode-text").textContent = s.mode || "mock";
 
-      const rd=s.radar_data||{}, gd=s.gps_data||{};
+      const rd=s.radar_data||{}, gd=s.gps_data||{}, vd=s.vision_details||{};
+      $(sensorDataIds.vision_objects).textContent=vd.object_count!=null?String(vd.object_count):"--";
+      $(sensorDataIds.vision_confidence).textContent=typeof vd.max_confidence==="number"?(vd.max_confidence*100).toFixed(0)+"%":"--";
+      $(sensorDataIds.vision_drivable).textContent=typeof vd.drivable_area_ratio==="number"?(vd.drivable_area_ratio*100).toFixed(0)+"%":"--";
       $(sensorDataIds.radar_targets).textContent=rd.target_count!=null?String(rd.target_count):"--";
       $(sensorDataIds.radar_nearest).textContent=rd.nearest_distance_m>=0?rd.nearest_distance_m.toFixed(1)+" m":"无目标";
       $(sensorDataIds.radar_ttc).textContent=rd.min_ttc_s>0?rd.min_ttc_s.toFixed(1)+" s":"--";
       $(sensorDataIds.gps_speed).textContent=typeof gd.speed_kmh==="number"?gd.speed_kmh.toFixed(1)+" km/h":"--";
       $(sensorDataIds.gps_position).textContent=gd.valid?gd.latitude.toFixed(6)+", "+gd.longitude.toFixed(6):"未定位";
-      $(sensorDataIds.gps_fix).textContent=gd.fix_quality!=null?String(gd.fix_quality):"--";
 
-      const vd=s.vision_details||{};
-      visionFields.forEach(k=>{
-        const el=$(vdIds[k+"_val"]);if(!el)return;
-        if(k==="valid"){el.textContent=vd.valid?"是":"否";el.style.color=vd.valid?"var(--green)":"var(--red)";}
-        else if(typeof vd[k]==="number"){el.textContent=vd[k].toFixed(2);}
-        else{el.textContent=String(vd[k]!=null?vd[k]:"-");}
-        if(visionFieldBars[k]){const bar=$(vdIds[k+"_bar"]);if(bar&&typeof vd[k]==="number"){bar.style.width=(vd[k]*100).toFixed(1)+"%";}}
-      });
       if (overlayEnabled) drawOverlay(vd);
       else clearOverlay();
 
@@ -960,10 +1013,7 @@
         const el=$(rtIds[k+"_val"]);if(!el)return;const v=rt[k];
         if(k==="backend_uptime_sec"&&typeof v==="number"){const secs=Math.floor(v);const hh=Math.floor(secs/3600);const mm=Math.floor((secs%3600)/60);const ss=secs%60;el.textContent=String(hh).padStart(2,"0")+":"+String(mm).padStart(2,"0")+":"+String(ss).padStart(2,"0");}
         else if(k==="state_hz"&&typeof v==="number"){el.textContent=v+" Hz";}
-        else if(k==="camera_available"||k==="vision_enabled"){el.textContent=v?"是":"否";el.style.color=v?"var(--green)":"var(--red)";}
-        else if(k==="vision_status"){el.textContent=String(v!=null?v:"--");if(v==="real")el.style.color="var(--green)";else if(v==="off")el.style.color="var(--red)";else if(v==="mock")el.style.color="var(--yellow)";else el.style.color="var(--text-tertiary)";}
-        else if(k==="state_loop_ms"&&typeof v==="number"){el.textContent=v.toFixed(2)+" ms";}
-        else if((k==="vision_infer_ms"||k==="vision_p50_ms"||k==="vision_p95_ms")&&typeof v==="number"){el.textContent=v.toFixed(2)+" ms";}
+        else if(k==="vision_infer_ms"&&typeof v==="number"){el.textContent=v.toFixed(2)+" ms";}
         else if(k==="actual_sample_hz"&&typeof v==="number"){el.textContent=v.toFixed(2)+" Hz";}
         else if(typeof v==="number"){el.textContent=String(v);}
         else{el.textContent=String(v!=null?v:"--");}

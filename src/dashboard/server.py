@@ -366,7 +366,15 @@ def api_state() -> JSONResponse:
             "risk_label": "未连接",
             "risk_items": {"obs": 0.0, "dist": 0.0, "pose": 0.0, "speed": 0.0},
             "weights": {"obs": 0.30, "dist": 0.35, "pose": 0.20, "speed": 0.15},
-            "sensors": {"camera": False, "vision": "mock", "radar": "mock", "imu": "mock", "gps": "mock"},
+            "sensors": {"camera": "off", "vision": "off", "radar": "off", "imu": "off", "gps": "off", "motor": "off"},
+            "hardware_status": {
+                "camera": {"status": "disabled", "reason": "state store is not injected"},
+                "vision": {"status": "disabled", "reason": "state store is not injected"},
+                "radar": {"status": "disabled", "reason": "state store is not injected"},
+                "gps": {"status": "disabled", "reason": "state store is not injected"},
+                "imu": {"status": "disabled", "reason": "state store is not injected"},
+                "motor": {"status": "disabled", "reason": "state store is not injected"},
+            },
             "mode": "mock",
             "message": "state_store not injected",
         }

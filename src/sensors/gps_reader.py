@@ -123,6 +123,11 @@ class GPSReader(BaseSensorReader):
         self._gga_received_wall: float = 0.0
         self._rmc_received_wall: float = 0.0
         self._bad_nmea_count: int = 0
+        self.bytes_received: int = 0
+        self.valid_sentence_count: int = 0
+        self.last_byte_monotonic_ns: int = 0
+        self.last_valid_sentence_monotonic_ns: int = 0
+        self.last_error: str = ""
         self._max_sentence_age_sec = float(self.config.get("max_sentence_age_sec", 2.5))
         self.last_sample_monotonic_ns: int = 0
 
@@ -136,10 +141,17 @@ class GPSReader(BaseSensorReader):
 
             try:
                 self._serial = _serial.Serial(port, baudrate, timeout=timeout)
+                self.bytes_received = 0
+                self.valid_sentence_count = 0
+                self._bad_nmea_count = 0
+                self.last_byte_monotonic_ns = 0
+                self.last_valid_sentence_monotonic_ns = 0
+                self.last_error = ""
                 print(f"[GPSReader] 已打开串口 {port} @ {baudrate}")
             except Exception as e:
                 print(f"[GPSReader] 串口打开失败: {e}")
                 self._serial = None
+                self.last_error = str(e)
         else:
             self._mock_speed = 12.0  # 初始速度 12 km/h
             print("[GPSReader] mock 模式启动")
@@ -164,6 +176,25 @@ class GPSReader(BaseSensorReader):
         self._latest = result
         return result
 
+    def get_diagnostics(self) -> dict:
+        current_mono = time.monotonic()
+        return {
+            "bytes_received": int(self.bytes_received),
+            "valid_sentence_count": int(self.valid_sentence_count),
+            "bad_sentence_count": int(self._bad_nmea_count),
+            "last_byte_monotonic_ns": int(self.last_byte_monotonic_ns),
+            "last_valid_sentence_monotonic_ns": int(self.last_valid_sentence_monotonic_ns),
+            "gga_fresh": bool(
+                self._latest_gga is not None
+                and current_mono - self._gga_received_mono <= self._max_sentence_age_sec
+            ),
+            "rmc_fresh": bool(
+                self._latest_rmc is not None
+                and current_mono - self._rmc_received_mono <= self._max_sentence_age_sec
+            ),
+            "last_error": self.last_error,
+        }
+
     def _read_real(self, ts: float) -> GPSData:
         """真实串口读取 NMEA 数据。"""
         gps = GPSData(timestamp=ts, valid=False)
@@ -180,6 +211,8 @@ class GPSReader(BaseSensorReader):
                 raw = self._serial.readline()
                 if not raw:
                     break
+                self.bytes_received += len(raw)
+                self.last_byte_monotonic_ns = time.monotonic_ns()
                 try:
                     line = raw.decode("ascii", errors="ignore").strip()
                 except Exception:
@@ -191,6 +224,8 @@ class GPSReader(BaseSensorReader):
 
                 received_mono = time.monotonic()
                 received_wall = now()
+                self.valid_sentence_count += 1
+                self.last_valid_sentence_monotonic_ns = time.monotonic_ns()
 
                 if line.startswith("$GPGGA") or line.startswith("$GNGGA"):
                     parsed = _parse_nmea_gga(line)
