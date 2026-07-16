@@ -1,0 +1,94 @@
+[
+  {
+    "scenario": "static",
+    "instruction": "水平静止 20 秒",
+    "wall_start": "2026-07-16T18:43:03.816724+08:00",
+    "active_start_ns": 5547128584790,
+    "active_end_ns": 5567133241887,
+    "wall_end": "2026-07-16T18:43:23.821446+08:00"
+  },
+  {
+    "scenario": "left_tilt",
+    "instruction": "缓慢向左倾斜并恢复，重复 3 次",
+    "wall_start": "2026-07-16T18:43:44.882392+08:00",
+    "pre_start_ns": 5588194265788,
+    "pre_end_ns": 5591201720605,
+    "active_start_ns": 5591201744043,
+    "active_end_ns": 5603211139487,
+    "post_start_ns": 5603211167011,
+    "post_end_ns": 5606218163526,
+    "wall_end": "2026-07-16T18:44:02.906367+08:00"
+  },
+  {
+    "scenario": "right_tilt",
+    "instruction": "缓慢向右倾斜并恢复，重复 3 次",
+    "wall_start": "2026-07-16T18:44:29.121469+08:00",
+    "pre_start_ns": 5632433338959,
+    "pre_end_ns": 5635440700430,
+    "active_start_ns": 5635440728676,
+    "active_end_ns": 5647449917820,
+    "post_start_ns": 5647449946537,
+    "post_end_ns": 5650457121262,
+    "wall_end": "2026-07-16T18:44:47.145322+08:00"
+  },
+  {
+    "scenario": "forward_tilt",
+    "instruction": "缓慢前倾并恢复，重复 3 次",
+    "wall_start": "2026-07-16T18:45:41.896388+08:00",
+    "pre_start_ns": 5705208254871,
+    "pre_end_ns": 5708215836219,
+    "active_start_ns": 5708215858869,
+    "active_end_ns": 5720224814533,
+    "post_start_ns": 5720224843484,
+    "post_end_ns": 5723231643457,
+    "wall_end": "2026-07-16T18:45:59.919846+08:00"
+  },
+  {
+    "scenario": "backward_tilt",
+    "instruction": "缓慢后仰并恢复，重复 3 次",
+    "wall_start": "2026-07-16T18:46:28.621405+08:00",
+    "pre_start_ns": 5751933272061,
+    "pre_end_ns": 5754941149155,
+    "active_start_ns": 5754941183783,
+    "active_end_ns": 5766942124264,
+    "post_start_ns": 5766942148885,
+    "post_end_ns": 5769950260677,
+    "wall_end": "2026-07-16T18:46:46.638470+08:00"
+  },
+  {
+    "scenario": "yaw_left",
+    "instruction": "保持基本竖直，向左转动车头 3 次",
+    "wall_start": "2026-07-16T18:47:17.891881+08:00",
+    "pre_start_ns": 5801203758841,
+    "pre_end_ns": 5804211597206,
+    "active_start_ns": 5804211618323,
+    "active_end_ns": 5816212034032,
+    "post_start_ns": 5816212055624,
+    "post_end_ns": 5819219056584,
+    "wall_end": "2026-07-16T18:47:35.907257+08:00"
+  },
+  {
+    "scenario": "yaw_right",
+    "instruction": "保持基本竖直，向右转动车头 3 次",
+    "wall_start": "2026-07-16T18:48:09.231025+08:00",
+    "pre_start_ns": 5852542889353,
+    "pre_end_ns": 5855549697260,
+    "active_start_ns": 5855549719562,
+    "active_end_ns": 5867558556087,
+    "post_start_ns": 5867558574787,
+    "post_end_ns": 5870565360187,
+    "wall_end": "2026-07-16T18:48:27.253564+08:00"
+  },
+  {
+    "scenario": "bump",
+    "instruction": "轻微上下振动或模拟小颠簸 3 次",
+    "wall_start": "2026-07-16T18:49:09.483932+08:00",
+    "pre_start_ns": 5912795810844,
+    "pre_end_ns": 5915803368468,
+    "active_start_ns": 5915803388673,
+    "active_end_ns": 5927811538672,
+    "post_start_ns": 5927811560384,
+    "post_end_ns": 5930818700688,
+    "wall_end": "2026-07-16T18:49:27.506902+08:00"
+  }
+]

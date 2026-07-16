@@ -1,0 +1,211 @@
+{
+  "samples": {
+    "total": 14531,
+    "valid": 14531,
+    "invalid": 0,
+    "invalid_ratio": 0.0
+  },
+  "static": {
+    "roll": {
+      "count": 1989,
+      "mean": -5.29634639688207,
+      "std": 0.4143820591707194,
+      "min": -5.6744384765625,
+      "max": 2.92236328125,
+      "p50": -5.29541015625,
+      "p95": -5.0042724609375,
+      "p99": -4.652050781250001
+    },
+    "pitch": {
+      "count": 1989,
+      "mean": -1.4931850519654977,
+      "std": 0.10444994626607815,
+      "min": -3.878173828125,
+      "max": 1.2689208984375,
+      "p50": -1.4996337890625,
+      "p95": -1.47216796875,
+      "p99": -1.4666748046875
+    },
+    "gravity": {
+      "acc_x": {
+        "count": 1989,
+        "mean": 0.25558123389580195,
+        "std": 0.035261586158067924,
+        "min": -0.82783203125,
+        "max": 0.6794921875000001,
+        "p50": 0.25361328125000004,
+        "p95": 0.29189453125000003,
+        "p99": 0.31582031250000003
+      },
+      "acc_y": {
+        "count": 1989,
+        "mean": -0.9241342029600302,
+        "std": 0.1127656668694263,
+        "min": -1.06708984375,
+        "max": 2.3830078125000003,
+        "p50": -0.9283203125,
+        "p95": -0.8517578125,
+        "p99": -0.7895507812500001
+      },
+      "acc_z": {
+        "count": 1989,
+        "mean": 9.798687293787708,
+        "std": 0.06466779072965281,
+        "min": 9.4948984375,
+        "max": 12.562183593750001,
+        "p50": 9.79636328125,
+        "p95": 9.82507421875,
+        "p99": 9.839429687500001
+      }
+    },
+    "dominant_gravity_axis": "acc_z"
+  },
+  "directions": {
+    "left_tilt": {
+      "axis": "roll",
+      "pre_static_baseline": -5.648111706992057,
+      "signed_peak_delta": -18.428426378945442,
+      "sign": "negative"
+    },
+    "right_tilt": {
+      "axis": "roll",
+      "pre_static_baseline": -9.58540594298704,
+      "signed_peak_delta": 20.401445982049538,
+      "sign": "positive"
+    },
+    "forward_tilt": {
+      "axis": "pitch",
+      "pre_static_baseline": -0.18665734740802675,
+      "signed_peak_delta": 10.370983519283026,
+      "sign": "positive"
+    },
+    "backward_tilt": {
+      "axis": "pitch",
+      "pre_static_baseline": -1.1189887515677257,
+      "signed_peak_delta": -12.701812029682275,
+      "sign": "negative"
+    }
+  },
+  "direction_pairs_passed": {
+    "left_right_roll_opposite": true,
+    "forward_backward_pitch_opposite": true
+  },
+  "observed_installation_mapping": {
+    "left_tilt": {
+      "roll_signed_peak_delta": -18.428426378945442,
+      "pitch_signed_peak_delta": 0.2889514527591974,
+      "dominant_axis": "roll",
+      "dominant_sign": "negative"
+    },
+    "right_tilt": {
+      "roll_signed_peak_delta": 20.401445982049538,
+      "pitch_signed_peak_delta": -0.17875747935827757,
+      "dominant_axis": "roll",
+      "dominant_sign": "positive"
+    },
+    "forward_tilt": {
+      "roll_signed_peak_delta": -6.6827739600752505,
+      "pitch_signed_peak_delta": 10.370983519283026,
+      "dominant_axis": "pitch",
+      "dominant_sign": "positive"
+    },
+    "backward_tilt": {
+      "roll_signed_peak_delta": 9.040351791126671,
+      "pitch_signed_peak_delta": -12.701812029682275,
+      "dominant_axis": "pitch",
+      "dominant_sign": "negative"
+    }
+  },
+  "observed_mapping_checks": {
+    "left_right_same_axis": true,
+    "left_right_opposite_sign": true,
+    "forward_backward_same_axis": true,
+    "forward_backward_opposite_sign": true,
+    "matches_code_axis_assumption": true
+  },
+  "angle_gyro_consistency": {
+    "roll_vs_gyro_x": {
+      "angle_axis": "roll",
+      "gyro_axis": "gyro_x",
+      "samples": 4586,
+      "pearson_correlation": 0.9582672030556798,
+      "same_sign_fraction": 0.9204726198591229
+    },
+    "pitch_vs_gyro_y": {
+      "angle_axis": "pitch",
+      "gyro_axis": "gyro_y",
+      "samples": 3017,
+      "pearson_correlation": 0.954739823945172,
+      "same_sign_fraction": 0.8287352203511287
+    }
+  },
+  "update_interval_ms": {
+    "count": 14509,
+    "mean": 10.058015227238265,
+    "std": 0.019945594667042262,
+    "min": 10.000282,
+    "max": 11.093761,
+    "p50": 10.05687,
+    "p95": 10.0684736,
+    "p99": 10.07680472
+  },
+  "max_outage_ms": 11.093761,
+  "component_sync_skew_ms": {
+    "count": 14531,
+    "mean": 0.04528745440781777,
+    "std": 0.6337177027544039,
+    "min": 0.002,
+    "max": 10.131,
+    "p50": 0.005,
+    "p95": 0.01,
+    "p99": 0.017
+  },
+  "sync_candidate_200ms_passed": true,
+  "tilt_false_positive_checks": {
+    "bump": {
+      "valid_samples": 1194,
+      "fraction_tilt_score_ge_0_5": 0.0,
+      "longest_continuous_high_sec": 0.0,
+      "max_tilt_score": 0.266
+    },
+    "push_straight": {
+      "valid_samples": 0,
+      "fraction_tilt_score_ge_0_5": null,
+      "longest_continuous_high_sec": 0.0,
+      "max_tilt_score": null
+    },
+    "normal_turn": {
+      "valid_samples": 0,
+      "fraction_tilt_score_ge_0_5": null,
+      "longest_continuous_high_sec": 0.0,
+      "max_tilt_score": null
+    },
+    "stop": {
+      "valid_samples": 0,
+      "fraction_tilt_score_ge_0_5": null,
+      "longest_continuous_high_sec": 0.0,
+      "max_tilt_score": null
+    }
+  },
+  "static_tilt_score": {
+    "stats": {
+      "count": 1989,
+      "mean": 0.1516143790849673,
+      "std": 0.007410780834585885,
+      "min": 0.039,
+      "max": 0.197,
+      "p50": 0.151,
+      "p95": 0.161,
+      "p99": 0.162
+    },
+    "fraction_ge_0_5": 0.0,
+    "longest_continuous_high_sec": 0.0
+  },
+  "packet_counts": {
+    "acc": 21781,
+    "gyro": 21790,
+    "angle": 21794
+  },
+  "bad_checksum_count": 0,
+  "discarded_byte_count": 0
+}

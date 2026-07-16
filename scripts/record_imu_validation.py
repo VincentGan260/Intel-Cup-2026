@@ -421,7 +421,7 @@ def main() -> int:
     interval = 1.0 / max(1.0, args.sample_hz)
     try:
         with raw_path.open("w", newline="", encoding="utf-8") as handle:
-            writer = csv.DictWriter(handle, fieldnames=FIELDS)
+            writer = csv.DictWriter(handle, fieldnames=FIELDS, lineterminator="\n")
             writer.writeheader()
             for name, instruction, active_seconds, has_boundaries in SCENARIOS:
                 if name not in selected:
