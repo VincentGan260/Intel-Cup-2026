@@ -6,6 +6,17 @@ from typing import Optional
 from src.fusion.warning_events import ArbitrationResult, ModalityEvent
 
 
+_LEVEL_FALLBACK_SCORES = {0: 0.0, 1: 0.5, 2: 1.0}
+
+
+def _event_score(event: Optional[ModalityEvent], usable: bool) -> Optional[float]:
+    if not usable or event is None:
+        return None
+    if event.risk_score is not None:
+        return max(0.0, min(1.0, float(event.risk_score)))
+    return _LEVEL_FALLBACK_SCORES.get(event.level)
+
+
 def arbitrate_warning_events(
     radar_event: Optional[ModalityEvent],
     vision_event: Optional[ModalityEvent],
@@ -25,8 +36,12 @@ def arbitrate_warning_events(
 
     radar_level = radar_event.level if radar_usable else None
     vision_level = vision_event.level if vision_usable else None
+    radar_score = _event_score(radar_event, radar_usable)
+    vision_score = _event_score(vision_event, vision_usable)
     levels = [v for v in (radar_level, vision_level) if v is not None]
     final_level = max(levels) if levels else None
+    scores = [value for value in (radar_score, vision_score) if value is not None]
+    risk_score = max(scores) if scores else None
 
     evidence = []
     if radar_level is not None and radar_level > 0:
@@ -44,6 +59,8 @@ def arbitrate_warning_events(
     reason = "no_usable_modality"
     if radar_level == 2:
         reason = radar_event.reason
+    elif vision_level == 2:
+        reason = vision_event.reason
     elif radar_level == 1:
         reason = radar_event.reason
     elif vision_level == 1:
@@ -61,10 +78,11 @@ def arbitrate_warning_events(
         return event.status
 
     return ArbitrationResult(
-        final_level=final_level, system_status=system_status,
+        final_level=final_level, risk_score=risk_score, system_status=system_status,
         warning_reason=reason, evidence_sources=tuple(evidence),
         both_modalities_active=len(evidence) == 2,
         radar_level=radar_level, vision_level=vision_level,
+        radar_score=radar_score, vision_score=vision_score,
         radar_status=status(radar_event, radar_usable),
         vision_status=status(vision_event, vision_usable),
     )

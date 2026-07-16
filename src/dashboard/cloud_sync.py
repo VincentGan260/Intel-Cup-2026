@@ -33,6 +33,10 @@ def build_ride_payload(state: dict, device_id: str) -> dict:
     radar_valid = bool(radar.get("valid", False))
     vision_valid = bool(vision.get("valid", False))
     timestamp = float(state.get("timestamp", time.time()))
+    risk_score = _finite_optional(state.get("risk_score"))
+    risk_score = min(1.0, max(0.0, risk_score)) if risk_score is not None else None
+    risk_level = state.get("risk_level")
+    risk_level = int(risk_level) if risk_level in (0, 1, 2) else None
     return {
         "device_id": device_id,
         "collected_at": datetime.fromtimestamp(timestamp, timezone.utc).isoformat(),
@@ -49,8 +53,8 @@ def build_ride_payload(state: dict, device_id: str) -> dict:
         "vision_valid": vision_valid,
         "obstacle_count": max(0, int(vision.get("object_count", 0) or 0)),
         "drivable_area_ratio": _finite_optional(vision.get("drivable_area_ratio")) if vision_valid else None,
-        "risk_score": min(1.0, max(0.0, float(state.get("risk_score", 0.0) or 0.0))),
-        "risk_level": min(2, max(0, int(state.get("risk_level", 0) or 0))),
+        "risk_score": risk_score,
+        "risk_level": risk_level,
         "system_status": str(state.get("system_status", "unknown")),
         "warning_reason": str(state.get("warning_reason", "")),
         "radar_level": state.get("radar_level"),

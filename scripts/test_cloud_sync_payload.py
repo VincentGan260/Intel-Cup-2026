@@ -31,6 +31,8 @@ def main() -> int:
     assert invalid["latitude"] is None
     assert invalid["nearest_distance_m"] is None
     assert invalid["drivable_area_ratio"] is None
+    assert invalid["risk_score"] is None
+    assert invalid["risk_level"] is None
     invalid_numbers = build_ride_payload({
         "timestamp": 1_700_000_000.0,
         "radar_data": {"valid": True, "nearest_distance_m": math.inf,
