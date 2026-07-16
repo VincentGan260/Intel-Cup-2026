@@ -15,7 +15,7 @@ from src.fusion.warning_arbiter import arbitrate_warning_events
 from src.fusion.warning_events import ModalityEvent
 
 
-OFFSET = -5.296
+OFFSET = -12.44
 
 
 def sample(*, body_roll: float, gyro_x: float, gyro_z: float = 0.0) -> IMUData:

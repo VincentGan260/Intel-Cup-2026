@@ -23,6 +23,7 @@ def _radar_diagnostic_state(
     connected: bool,
     raw_valid: bool,
     fresh: bool,
+    communication_alive: bool,
     target_count: int,
     diagnostics: dict,
     age_ms: float | None,
@@ -36,6 +37,8 @@ def _radar_diagnostic_state(
             return "no_valid_frame", "bytes arrived but no complete valid radar frame was decoded"
         return "read_invalid", "latest radar read did not produce a valid frame"
     if not fresh:
+        if communication_alive:
+            return "waiting", "radar communication is alive; awaiting the next target or no-target report"
         return "stale", f"last valid radar frame is stale ({age_ms:.0f} ms)" if age_ms is not None else "no radar sample timestamp"
     if target_count <= 0:
         return "no_target", "radar is healthy and currently reports no target"
@@ -328,6 +331,7 @@ def build_real_sensor_state(
         connected=radar_connected,
         raw_valid=bool(radar.valid),
         fresh=radar_fresh,
+        communication_alive=radar_communication_alive,
         target_count=len(targets),
         diagnostics=radar_diagnostics,
         age_ms=radar_age_ms,
@@ -487,7 +491,9 @@ def build_real_sensor_state(
         "radar_score": warning_snapshot["radar_score"] if warning_snapshot else None,
         "vision_score": warning_snapshot["vision_score"] if warning_snapshot else None,
         "imu_score": warning_snapshot["imu_score"] if warning_snapshot else None,
-        "radar_status": warning_snapshot["radar_status"] if warning_snapshot else status,
+        "radar_status": radar_state,
+        "radar_safety_status": (warning_snapshot["radar_status"]
+                                if warning_snapshot else status),
         "vision_status": warning_snapshot["vision_status"] if warning_snapshot else "off",
         "imu_status": warning_snapshot["imu_status"] if warning_snapshot else "off",
         "radar_score_status": (warning_snapshot["radar_score_status"]
@@ -522,7 +528,7 @@ def build_real_sensor_state(
             "vision": ("real" if vision_state == "active"
                        else "invalid" if vision_state in {"waiting", "invalid"}
                        else "off"),
-            "radar": ("real" if radar_state in {"tracking", "no_target"}
+            "radar": ("real" if radar_state in {"tracking", "no_target", "waiting"}
                       else "invalid" if radar_connected else "off"),
             "gps": "real" if gps_state == "active" else "invalid" if gps_connected else "off",
             "imu": "real" if imu.valid else "invalid" if imu_connected else "off",

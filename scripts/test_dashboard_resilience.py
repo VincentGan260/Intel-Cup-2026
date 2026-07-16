@@ -115,6 +115,13 @@ def test_cloud_player_keeps_selection() -> None:
     assert 'id="all-rows"' in index
     assert "Number(x.risk_level)===2" in index
     assert "x.imu_posture||'--'" in index
+    assert "['低','中','高'][n]" in index
+    assert '<th>风险</th><th>位置</th>' in index
+    assert "positionLabel(x)" in index
+    assert 'colspan="8"' in index
+    assert '<th>可行驶区域</th><th>风险</th>' in index
+    assert "drivableLabel(x.drivable_area_ratio)" in index
+    assert "x.min_ttc_s" not in index
 
 
 def test_serial_retry() -> None:

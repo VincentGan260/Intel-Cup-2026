@@ -721,8 +721,8 @@
     sensorsContainer.appendChild(div);
   });
 
-  const sensorDataFields = ["vision_objects", "vision_drivable", "imu_posture", "radar_targets", "radar_nearest", "radar_ttc", "gps_speed", "gps_position", "imu_lateral"];
-  const sensorDataLabels = {"vision_objects":"视觉目标数","vision_drivable":"可行驶区域","imu_posture":"姿态","radar_targets":"雷达目标数","radar_nearest":"最近距离","radar_ttc":"最小 TTC","gps_speed":"速度","gps_position":"经纬度","imu_lateral":"横倾动态"};
+  const sensorDataFields = ["vision_objects", "vision_drivable", "imu_posture", "radar_targets", "radar_nearest", "radar_ttc", "gps_speed", "gps_position"];
+  const sensorDataLabels = {"vision_objects":"视觉目标数","vision_drivable":"可行驶区域","imu_posture":"姿态","radar_targets":"雷达目标数","radar_nearest":"最近距离","radar_ttc":"最小 TTC","gps_speed":"速度","gps_position":"经纬度"};
   const sensorDataIds = {};
   const sensorDataContainer = $("sensor-data-container");
   sensorDataFields.forEach(k => {
@@ -769,6 +769,7 @@
     "vision.waiting": "视觉已启用，正在等待第一帧结果",
     "vision.disabled": "视觉未启用或初始化失败",
     "vision.invalid": "视觉输出无效，需检查模型或输入画面",
+    "radar.waiting": "雷达通信正常，正在等待下一帧目标或无目标确认",
     "gps.active": "定位模块数据有效且与当前画面同步",
     "gps.no_fix": "定位模块有数据但尚未定位，室内或天线遮挡时常见",
     "gps.no_bytes": "串口已打开但没有收到定位模块数据",
@@ -1076,15 +1077,6 @@
       $(sensorDataIds.radar_ttc).textContent=rd.min_ttc_s>0?rd.min_ttc_s.toFixed(1)+" s":"--";
       $(sensorDataIds.gps_speed).textContent=typeof gd.speed_kmh==="number"?gd.speed_kmh.toFixed(1)+" km/h":"--";
       $(sensorDataIds.gps_position).textContent=gd.valid?gd.latitude.toFixed(6)+", "+gd.longitude.toFixed(6):"未定位";
-
-      if(id.valid){
-        const comp=id.turn_compensation_status==="usable"?"补偿有效":"补偿降级";
-        const residual=id.roll_error_deg===null?"--":id.roll_error_deg.toFixed(1)+"°";
-        const outward=id.outward_rate_deg_s===null?"--":id.outward_rate_deg_s.toFixed(1)+"°/s";
-        $(sensorDataIds.imu_lateral).textContent="残差 "+residual+" · 外倾 "+outward+" · "+comp;
-      }else{
-        $(sensorDataIds.imu_lateral).textContent="--";
-      }
 
       if (overlayEnabled) drawOverlay(vd);
       else clearOverlay();

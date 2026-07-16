@@ -26,7 +26,8 @@ class DashboardIMUUITests(unittest.TestCase):
         for source in ("radar", "vision", "imu"):
             self.assertIn(f'id="{source}-risk-fill"', html)
             self.assertIn(f'id="{source}-risk-value"', html)
-        self.assertIn('"imu_lateral"', html)
+        self.assertNotIn('"imu_lateral"', html)
+        self.assertNotIn('横倾动态', html)
 
     def test_video_mode_compares_annotated_and_clean_raw_streams(self) -> None:
         html = (Path(__file__).resolve().parents[1]

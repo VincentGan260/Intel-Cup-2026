@@ -13,20 +13,21 @@ from src.fusion.warning_config import load_warning_rule_config
 
 def main() -> None:
     config = load_warning_rule_config(ROOT / "configs" / "warning_rules.yaml")
-    assert config.version == "warning-rules-2026-07-16-imu-aligned"
+    assert config.version == "warning-rules-2026-07-17-published-score-variation"
     assert len(config.sha256) == 64
     assert config.section("radar")["urgent_reference_s"] == 2.5
     assert config.section("radar")["configured_warning_range_m"] == 100.0
     assert config.section("vision")["path_policy"] == "center"
     assert config.section("gps")["max_factor"] == 1.25
     assert config.section("imu")["attention_error_deg"] == 10.0
-    assert config.section("imu")["roll_offset_deg"] == -5.296
+    assert config.section("imu")["roll_offset_deg"] == -12.44
     assert config.section("imu")["pitch_offset_deg"] == -1.493
     assert config.section("imu")["critical_error_deg"] == 25.0
     assert config.section("imu")["prediction_horizon_s"] == 0.8
     assert config.section("freshness")["target_stale_ms"] == 500.0
     assert config.section("freshness")["imu_stale_ms"] == 100.0
-    assert config.metadata["calibration_status"] == "provisional_pending_vehicle_test"
+    assert config.section("state")["score_variation"]["max_amplitude"] == 0.012
+    assert config.metadata["calibration_status"] == "estimated_from_stationary_risk_pending_measurement"
     print("warning rule config: all tests passed")
 
 

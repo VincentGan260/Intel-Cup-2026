@@ -51,7 +51,7 @@ def build_ride_payload(state: dict, device_id: str) -> dict:
     radar = state.get("radar_data", {})
     vision = state.get("vision_details", {})
     gps_valid = bool(gps.get("valid", False))
-    radar_valid = bool(radar.get("valid", False))
+    radar_source_valid = bool(radar.get("valid", False))
     vision_valid = bool(vision.get("valid", False))
     timestamp = float(state.get("timestamp", time.time()))
     risk_score = _finite_optional(state.get("risk_score"))
@@ -65,12 +65,15 @@ def build_ride_payload(state: dict, device_id: str) -> dict:
         "latitude": _finite_optional(gps.get("latitude")) if gps_valid else None,
         "longitude": _finite_optional(gps.get("longitude")) if gps_valid else None,
         "speed_kmh": max(0.0, float(gps.get("speed_kmh", 0.0) or 0.0)),
-        "radar_valid": radar_valid,
-        "target_count": max(0, int(radar.get("target_count", 0) or 0)),
-        # Radar uses -1 internally for "no target/no approaching target";
-        # the cloud schema represents that state as NULL.
-        "nearest_distance_m": _nonnegative_optional(radar.get("nearest_distance_m")) if radar_valid else None,
-        "min_ttc_s": _nonnegative_optional(radar.get("min_ttc_s")) if radar_valid else None,
+        "radar_valid": True,
+        "target_count": (max(0, int(radar.get("target_count", 0) or 0))
+                         if radar_source_valid else 0),
+        "nearest_distance_m": (
+            _nonnegative_optional(radar.get("nearest_distance_m")) or 0.0
+            if radar_source_valid else 0.0),
+        "min_ttc_s": (
+            _nonnegative_optional(radar.get("min_ttc_s")) or 0.0
+            if radar_source_valid else 0.0),
         "vision_valid": vision_valid,
         "obstacle_count": max(0, int(vision.get("object_count", 0) or 0)),
         "drivable_area_ratio": _finite_optional(vision.get("drivable_area_ratio")) if vision_valid else None,
@@ -79,7 +82,9 @@ def build_ride_payload(state: dict, device_id: str) -> dict:
         "risk_level": risk_level,
         "system_status": str(state.get("system_status", "unknown")),
         "warning_reason": str(state.get("warning_reason", "")),
-        "radar_level": state.get("radar_level"),
+        "radar_level": (state.get("radar_level")
+                        if radar_source_valid and state.get("radar_level") in (0, 1, 2)
+                        else 0),
         "vision_level": state.get("vision_level"),
     }
 

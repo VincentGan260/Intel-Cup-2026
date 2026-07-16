@@ -532,7 +532,8 @@ def main() -> None:
                       "imu_stale_ms": float(freshness_defaults["imu_stale_ms"]),
                       "radar_communication_watchdog_ms":
                           args.radar_communication_watchdog_ms},
-        "state": {"release_hold_ms": args.release_hold_ms},
+        "state": {"release_hold_ms": args.release_hold_ms,
+                  "score_variation": state_defaults["score_variation"]},
     }
     warning_rule_metadata = {
         **warning_config.metadata,
@@ -576,10 +577,21 @@ def main() -> None:
     camera = CameraFrameProducer(camera_id=args.camera_id)
 
     # ── 2. 创建状态池 ──
+    from src.dashboard.risk_score_variation import (
+        RiskScoreVariation,
+        RiskScoreVariationConfig,
+    )
     from src.dashboard.state_store import DashboardStateStore
     from src.dashboard.vision_snapshot import VisionSnapshotStore
 
-    state_store = DashboardStateStore()
+    score_variation_defaults = state_defaults["score_variation"]
+    score_variation = RiskScoreVariation(RiskScoreVariationConfig(
+        enabled=bool(score_variation_defaults["enabled"]),
+        max_amplitude=float(score_variation_defaults["max_amplitude"]),
+        time_constant_s=float(score_variation_defaults["time_constant_s"]),
+        seed=score_variation_defaults.get("seed"),
+    ))
+    state_store = DashboardStateStore(score_variation=score_variation)
     vision_snapshot_store = VisionSnapshotStore()
 
     # 写入一次初始状态
