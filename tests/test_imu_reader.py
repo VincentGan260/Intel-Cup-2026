@@ -79,6 +79,33 @@ class IMUReaderTests(unittest.TestCase):
         parsed, _ = self.reader._parse_next_packet()
         self.assertEqual(parsed["type"], "angle")
         self.assertAlmostEqual(parsed["roll"], 90.0)
+        diagnostics = self.reader.get_diagnostics()
+        self.assertEqual(diagnostics["bad_checksum_count"], 1)
+        self.assertEqual(diagnostics["packet_counts"]["angle"], 1)
+
+    def test_bad_checksum_is_not_counted_again_on_next_read(self) -> None:
+        bad = bytearray(self.acc)
+        bad[-1] ^= 0xFF
+        self.reader._buffer.extend(bad)
+        self.assertEqual(self.reader._parse_next_packet(), (None, 0))
+        self.assertEqual(self.reader._parse_next_packet(), (None, 0))
+        self.assertEqual(self.reader.get_diagnostics()["bad_checksum_count"], 1)
+
+    def test_diagnostics_report_component_age_and_skew(self) -> None:
+        self.serial.data = self.acc + self.gyro + self.angle
+        self.assertTrue(self.reader.read_once().valid)
+        diagnostics = self.reader.get_diagnostics()
+        self.assertTrue(diagnostics["connected"])
+        self.assertEqual(
+            diagnostics["packet_counts"],
+            {"acc": 1, "gyro": 1, "angle": 1},
+        )
+        self.assertEqual(
+            set(diagnostics["component_arrival_monotonic_ns"]),
+            {"acc", "gyro", "angle"},
+        )
+        self.assertIsNotNone(diagnostics["component_skew_ms"])
+        self.assertLess(diagnostics["component_skew_ms"], 200.0)
 
 
 if __name__ == "__main__":

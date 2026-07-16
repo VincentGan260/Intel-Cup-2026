@@ -90,6 +90,10 @@ class IMUReader(BaseSensorReader):
         self._component_values: dict[str, tuple[float, float, float]] = {}
         self._component_times: dict[str, float] = {}
         self._max_data_age_sec = float(self.config.get("max_data_age_sec", 0.5))
+        self._packet_counts = {"acc": 0, "gyro": 0, "angle": 0}
+        self._bad_checksum_count = 0
+        self._discarded_byte_count = 0
+        self.last_error = ""
 
         # mock 状态
         self._mock_roll = 0.0
@@ -124,6 +128,8 @@ class IMUReader(BaseSensorReader):
         )
         if connected:
             self._buffer.clear()
+            self._component_values.clear()
+            self._component_times.clear()
         return connected
 
     def _run_calibration(self) -> None:
@@ -291,9 +297,13 @@ class IMUReader(BaseSensorReader):
             parsed_dict=None 表示未找到有效帧，consumed 为已跳过的字节数。
         """
         buf_len = len(self._buffer)
+        search_from = 0
 
-        # 逐字节扫描帧头 0x55
+        # 逐字节扫描帧头 0x55。坏校验帧只计数一次，
+        # 扫描继续向后查找，以便同一批数据中的后续好帧仍能被解析。
         for i in range(buf_len - 10):
+            if i < search_from:
+                continue
             if self._buffer[i] != 0x55:
                 continue
 
@@ -306,9 +316,12 @@ class IMUReader(BaseSensorReader):
             # 校验和验证：前 10 字节累加取低 8 位
             expected_sum = (sum(frame[:10])) & 0xFF
             if expected_sum != frame[10]:
+                self._bad_checksum_count += 1
+                search_from = i + 1
                 continue  # 校验和不匹配，继续搜索
 
             # 解析通过，删除已消费字节
+            self._discarded_byte_count += i
             del self._buffer[: i + 11]
 
             if ptype == 0x53:  # 角度包
@@ -318,6 +331,7 @@ class IMUReader(BaseSensorReader):
                 roll = roll_raw / 32768.0 * 180.0
                 pitch = pitch_raw / 32768.0 * 180.0
                 yaw = yaw_raw / 32768.0 * 180.0
+                self._packet_counts["angle"] += 1
                 return {"type": "angle", "roll": roll, "pitch": pitch, "yaw": yaw}, i + 11
 
             elif ptype == 0x51:  # 加速度包
@@ -327,6 +341,7 @@ class IMUReader(BaseSensorReader):
                 acc_x = ax / 32768.0 * 16.0 * 9.8
                 acc_y = ay / 32768.0 * 16.0 * 9.8
                 acc_z = az / 32768.0 * 16.0 * 9.8
+                self._packet_counts["acc"] += 1
                 return {"type": "acc", "acc_x": acc_x, "acc_y": acc_y, "acc_z": acc_z}, i + 11
 
             elif ptype == 0x52:  # 角速度包
@@ -336,12 +351,48 @@ class IMUReader(BaseSensorReader):
                 gyro_x = gx / 32768.0 * 2000.0
                 gyro_y = gy / 32768.0 * 2000.0
                 gyro_z = gz / 32768.0 * 2000.0
+                self._packet_counts["gyro"] += 1
                 return {"type": "gyro", "gyro_x": gyro_x, "gyro_y": gyro_y, "gyro_z": gyro_z}, i + 11
+
+        # 丢弃已确认为坏校验帧的帧头，避免下次调用重复计数。
+        if search_from > 0:
+            self._discarded_byte_count += search_from
+            del self._buffer[:search_from]
+            buf_len = len(self._buffer)
 
         # 缓冲区中没有完整有效帧，清理残留垃圾（保留最后 10 字节用于拼接）
         if buf_len > 20:
+            self._discarded_byte_count += buf_len - 10
             self._buffer = self._buffer[-10:]
         return None, 0
+
+    def get_diagnostics(self) -> dict:
+        """返回 IMU 串口、帧校验和三类分量同步诊断。"""
+        current = time.monotonic()
+        component_age_ms = {
+            name: round((current - timestamp) * 1000.0, 3)
+            for name, timestamp in self._component_times.items()
+        }
+        component_arrival_ns = {
+            name: int(timestamp * 1_000_000_000)
+            for name, timestamp in self._component_times.items()
+        }
+        component_skew_ms = None
+        if all(name in self._component_times for name in ("acc", "gyro", "angle")):
+            timestamps = [self._component_times[name] for name in ("acc", "gyro", "angle")]
+            component_skew_ms = round((max(timestamps) - min(timestamps)) * 1000.0, 3)
+        return {
+            "port": self.config.get("port", "/dev/ttyIMUWT61C"),
+            "baudrate": int(self.config.get("baudrate", 115200)),
+            "connected": bool(self._serial is not None and getattr(self._serial, "is_open", False)),
+            "packet_counts": dict(self._packet_counts),
+            "bad_checksum_count": self._bad_checksum_count,
+            "discarded_byte_count": self._discarded_byte_count,
+            "component_arrival_monotonic_ns": component_arrival_ns,
+            "component_age_ms": component_age_ms,
+            "component_skew_ms": component_skew_ms,
+            "last_error": self.last_error,
+        }
 
     # ---- mock ----
 
