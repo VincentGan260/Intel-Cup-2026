@@ -621,9 +621,14 @@ def main() -> None:
             try:
                 from src.sensors.imu_reader import IMUReader
 
-                imu_cfg = profile_cfg.get("imu", {})
-                if not imu_cfg:
+                profile_imu_cfg = profile_cfg.get("imu", {})
+                if not profile_imu_cfg:
                     raise ValueError(f"profile={args.profile} 缺少 IMU 串口配置")
+                imu_cfg = {
+                    **profile_imu_cfg,
+                    "roll_offset_deg": float(imu_defaults["roll_offset_deg"]),
+                    "pitch_offset_deg": float(imu_defaults["pitch_offset_deg"]),
+                }
                 imu_reader = IMUReader(mode="real", config=imu_cfg)
                 imu_reader.start()
                 imu_init_ok = imu_reader._serial is not None
@@ -684,6 +689,7 @@ def main() -> None:
                 imu_warning_rule = ImuWarningRule(ImuWarningRuleConfig(
                     calibration_status=str(imu_defaults["calibration_status"]),
                     roll_offset_deg=float(imu_defaults["roll_offset_deg"]),
+                    pitch_offset_deg=float(imu_defaults["pitch_offset_deg"]),
                     turn_sign=float(imu_defaults["turn_sign"]),
                     gravity_mps2=float(imu_defaults["gravity_mps2"]),
                     min_turn_compensation_speed_kmh=float(
@@ -863,9 +869,14 @@ def main() -> None:
                 with open(ports_path, "r", encoding="utf-8") as f:
                     ports_cfg = yaml.safe_load(f)
                 platform_cfg = ports_cfg.get(args.profile, {})
-                imu_cfg = platform_cfg.get("imu", {})
-                if not imu_cfg:
+                profile_imu_cfg = platform_cfg.get("imu", {})
+                if not profile_imu_cfg:
                     raise ValueError(f"profile={args.profile} 缺少 IMU 串口配置")
+                imu_cfg = {
+                    **profile_imu_cfg,
+                    "roll_offset_deg": float(imu_defaults["roll_offset_deg"]),
+                    "pitch_offset_deg": float(imu_defaults["pitch_offset_deg"]),
+                }
                 imu_reader = IMUReader(mode="real", config=imu_cfg)
                 imu_reader.start()
                 if imu_reader._serial is not None:

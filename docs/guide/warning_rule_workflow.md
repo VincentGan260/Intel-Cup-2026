@@ -59,21 +59,23 @@ Windows 普通笔记本统一使用项目虚拟环境：
 - `version`：本次规则版本，修改候选参数时必须同步修改。
 - `calibration_status`：标定状态。当前为 `provisional_pending_vehicle_test`，表示等待实车验证。
 
-`configured_warning_range_m` 当前为 `null`，因为它必须与 LD2451 APP 的实际探测范围一致，不能由软件猜测。
+`configured_warning_range_m` 当前为 `100.0`，对应项目既有硬件记录中的
+LD2451 V1.03 默认/协议最大探测距离。该值只过滤雷达已经上报的目标，不会扩大
+雷达的实际探测能力。
 
 ## 5. 启动 Dashboard
 
-下面的 `20` 仅表示命令格式，实际值必须替换为 LD2451 APP 中设置的米数：
+正式入口会直接读取版本化配置，一般无需额外传入量程：
 
 ```powershell
-.\.venv\Scripts\python.exe run_dashboard.py `
-  --enable-risk-rule `
-  --enable-imu `
-  --warning-config configs/warning_rules.yaml `
-  --configured-warning-range-m 20
+.\.venv\Scripts\python.exe start_demo.py
 ```
 
-启用IMU风险时，状态循环低于`20 Hz`会自动提高到`20 Hz`，使高风险的连续3样本确认约在`100 ms`内完成。IMU安装方向或USB位置变化后，不得直接沿用当前`roll_offset_deg`和`turn_sign`。
+正式入口默认启用视觉、雷达、GPS、IMU、比赛风险规则和真实DRV2605马达，
+状态循环为`20 Hz`，并以`bike-001`向`http://124.70.108.34`上传状态和分段视频。
+离线诊断使用`--disable-cloud`；不希望驱动马达时使用`--disable-motor`。
+IMU安装方向或USB位置变化后，不得直接沿用当前
+`roll_offset_deg`、`pitch_offset_deg`和`turn_sign`。
 
 参数优先级为：
 

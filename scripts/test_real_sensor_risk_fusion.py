@@ -56,6 +56,7 @@ def main() -> int:
     )
     assert state["risk_score_semantics"] == "adaptive_weighted_fusion"
     assert state["risk_items"]["obs"] == 0.8
+    assert state["vision_details"]["max_visual_risk"] == 0.8
     assert state["risk_score"] > 0.0
     assert state["risk_items"]["pose"] == 0.0
     assert state["radar_data"]["valid"] is False

@@ -62,7 +62,8 @@ class IMUData(SensorBase):
     """WT61C 六轴姿态数据。
 
     字段说明：
-      roll / pitch / yaw  — 欧拉角（度）
+      roll / pitch / yaw  — 传感器原始欧拉角（度）
+      body_roll/body_pitch — 扣除固定安装偏置后的车体角度（度）
       acc_x/y/z           — 三轴加速度（m/s²）
       gyro_x/y/z          — 三轴角速度（°/s）
       brake_score          — 急刹特征评分 [0, 1]
@@ -73,6 +74,8 @@ class IMUData(SensorBase):
     roll: float = 0.0
     pitch: float = 0.0
     yaw: float = 0.0
+    body_roll: Optional[float] = None
+    body_pitch: Optional[float] = None
 
     acc_x: float = 0.0
     acc_y: float = 0.0

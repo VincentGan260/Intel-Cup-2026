@@ -8,7 +8,7 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
-from src.sensors.radar_reader import parse_radar_frame
+from src.sensors.radar_reader import DATA_HEADER, RadarReader, parse_radar_frame
 
 
 def main() -> None:
@@ -43,6 +43,17 @@ def main() -> None:
     mounted_result = parse_radar_frame(frame, approaching_direction_code=1, angle_sign=-1)
     assert mounted_result is not None
     assert mounted_result["targets"][0]["angle_deg"] == -10.0
+
+    # A corrupt length/tail must not hide the following valid frame.
+    reader = RadarReader(mode="real")
+    reader._buffer.extend(
+        b"noise" + DATA_HEADER + b"\xff\xffbroken" + frame
+    )
+    recovered = reader._extract_latest_frame()
+    assert recovered is not None and len(recovered["targets"]) == 3
+    diagnostics = reader.get_diagnostics()
+    assert diagnostics["length_error_count"] >= 1
+    assert diagnostics["discarded_byte_count"] >= len(b"noise")
     print("LD2451 V1.03 parser regression: PASS")
 
 

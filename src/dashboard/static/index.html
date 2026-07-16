@@ -631,7 +631,7 @@
           <span class="risk-item-val" id="radar-risk-value">--</span>
         </div>
         <div class="risk-item-row">
-          <span class="risk-item-label">视觉</span>
+          <span class="risk-item-label" title="仅表示视觉路径障碍规则，不等同于模型原始框风险">视觉规则</span>
           <div class="risk-item-bar"><div class="risk-item-fill" id="vision-risk-fill"></div></div>
           <span class="risk-item-val" id="vision-risk-value">--</span>
         </div>
@@ -682,6 +682,16 @@
 <script>
 (function () {
   const $ = (id) => document.getElementById(id);
+  function describeImuPosture(imu) {
+    if (!imu.valid || !Number.isFinite(imu.roll) || !Number.isFinite(imu.pitch)) return "--";
+    const posture = [];
+    const deadbandDeg = 5;
+    if (imu.roll <= -deadbandDeg) posture.push("向左倾斜");
+    else if (imu.roll >= deadbandDeg) posture.push("向右倾斜");
+    if (imu.pitch >= deadbandDeg) posture.push("向前倾斜");
+    else if (imu.pitch <= -deadbandDeg) posture.push("向后仰");
+    return posture.length ? posture.join("并") : "姿态平稳";
+  }
   let errorCount = 0;
   const MAX_ERRORS = 3;
   let prevRiskLevel = -1;
@@ -711,8 +721,8 @@
     sensorsContainer.appendChild(div);
   });
 
-  const sensorDataFields = ["vision_objects", "vision_drivable", "radar_targets", "radar_nearest", "radar_ttc", "gps_speed", "gps_position", "imu_lateral"];
-  const sensorDataLabels = {"vision_objects":"视觉目标数","vision_drivable":"可行驶区域","radar_targets":"雷达目标数","radar_nearest":"最近距离","radar_ttc":"最小 TTC","gps_speed":"速度","gps_position":"经纬度","imu_lateral":"横倾动态"};
+  const sensorDataFields = ["vision_objects", "vision_drivable", "imu_posture", "radar_targets", "radar_nearest", "radar_ttc", "gps_speed", "gps_position", "imu_lateral"];
+  const sensorDataLabels = {"vision_objects":"视觉目标数","vision_drivable":"可行驶区域","imu_posture":"姿态","radar_targets":"雷达目标数","radar_nearest":"最近距离","radar_ttc":"最小 TTC","gps_speed":"速度","gps_position":"经纬度","imu_lateral":"横倾动态"};
   const sensorDataIds = {};
   const sensorDataContainer = $("sensor-data-container");
   sensorDataFields.forEach(k => {
@@ -1058,8 +1068,9 @@
       $("mode-text").textContent = s.mode || "mock";
 
       const rd=s.radar_data||{}, gd=s.gps_data||{}, id=s.imu_data||{}, vd=s.vision_details||{};
-      $(sensorDataIds.vision_objects).textContent=vd.object_count!=null?String(vd.object_count):"--";
-      $(sensorDataIds.vision_drivable).textContent=typeof vd.drivable_area_ratio==="number"?(vd.drivable_area_ratio*100).toFixed(0)+"%":"--";
+      $(sensorDataIds.vision_objects).textContent=vd.valid&&vd.object_count!=null?String(vd.object_count):"--";
+      $(sensorDataIds.vision_drivable).textContent=vd.valid&&typeof vd.drivable_area_ratio==="number"?(vd.drivable_area_ratio*100).toFixed(1)+"%":"--";
+      $(sensorDataIds.imu_posture).textContent=describeImuPosture(id);
       $(sensorDataIds.radar_targets).textContent=rd.target_count!=null?String(rd.target_count):"--";
       $(sensorDataIds.radar_nearest).textContent=rd.nearest_distance_m>=0?rd.nearest_distance_m.toFixed(1)+" m":"无目标";
       $(sensorDataIds.radar_ttc).textContent=rd.min_ttc_s>0?rd.min_ttc_s.toFixed(1)+" s":"--";

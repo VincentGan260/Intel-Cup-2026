@@ -24,6 +24,21 @@ from src.sensors.radar_replay import dict_to_radar
 EVENT_FIELDS = {item.name for item in fields(ModalityEvent)}
 
 
+def _read_jsonl_rows(path: Path) -> list[dict]:
+    """Read JSONL while tolerating zero-filled crash padding at EOF."""
+    rows: list[dict] = []
+    for line_number, line in enumerate(
+            path.read_text(encoding="utf-8").splitlines(), start=1):
+        if not line.strip("\x00 \t\r\n"):
+            continue
+        try:
+            rows.append(json.loads(line))
+        except json.JSONDecodeError as exc:
+            raise ValueError(
+                f"invalid JSONL row at {path}:{line_number}: {exc.msg}") from exc
+    return rows
+
+
 def _event_from_dict(data: Optional[dict], *, sequence: int) -> Optional[ModalityEvent]:
     if not isinstance(data, dict):
         return None
@@ -53,6 +68,7 @@ def _decision_ns(row: dict, previous_ns: int) -> int:
     value = (risk.get("risk_decision_monotonic_ns")
              or risk.get("decision_monotonic_ns")
              or timestamps.get("risk_decision_monotonic_ns")
+             or timestamps.get("radar_read_end_monotonic_ns")
              or row.get("monotonic_ns"))
     decision_ns = int(value or 0)
     if decision_ns <= previous_ns:
@@ -117,9 +133,7 @@ def replay_session(session_dir: Path, config: WarningRuleConfig, *,
                    fail_after: Optional[dict[str, int]] = None) -> dict:
     session_dir = session_dir.resolve()
     meta = json.loads((session_dir / "session.json").read_text(encoding="utf-8"))
-    rows = [json.loads(line) for line in
-            (session_dir / "samples.jsonl").read_text(encoding="utf-8").splitlines()
-            if line.strip()]
+    rows = _read_jsonl_rows(session_dir / "samples.jsonl")
     if not rows:
         raise ValueError("recording contains no samples")
 
@@ -247,4 +261,3 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
-

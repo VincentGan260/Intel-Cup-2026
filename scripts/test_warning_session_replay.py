@@ -45,7 +45,8 @@ def main() -> None:
                 },
             })
         (session / "samples.jsonl").write_text(
-            "\n".join(json.dumps(row) for row in rows) + "\n", encoding="utf-8")
+            "\n".join(json.dumps(row) for row in rows) + "\n" + "\x00" * 128,
+            encoding="utf-8")
 
         report = replay_session(session, config)
         assert [row["level"] for row in report["rows"]] == [0, 1, 2]
@@ -61,4 +62,3 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
-

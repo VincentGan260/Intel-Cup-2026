@@ -93,6 +93,10 @@ class IMUReader(BaseSensorReader):
         # acc/gyro/angle sample. Consumers must not replace it with read time.
         self.last_sample_monotonic_ns: int = 0
         self._max_data_age_sec = float(self.config.get("max_data_age_sec", 0.5))
+        self._roll_offset_deg = float(self.config.get("roll_offset_deg", 0.0))
+        self._pitch_offset_deg = float(self.config.get("pitch_offset_deg", 0.0))
+        if not math.isfinite(self._roll_offset_deg) or not math.isfinite(self._pitch_offset_deg):
+            raise ValueError("IMU installation offsets must be finite")
         self._packet_counts = {"acc": 0, "gyro": 0, "angle": 0}
         self._bad_checksum_count = 0
         self._discarded_byte_count = 0
@@ -263,6 +267,8 @@ class IMUReader(BaseSensorReader):
                 imu.acc_x, imu.acc_y, imu.acc_z = self._component_values["acc"]
                 imu.gyro_x, imu.gyro_y, imu.gyro_z = self._component_values["gyro"]
                 imu.roll, imu.pitch, imu.yaw = self._component_values["angle"]
+                imu.body_roll = imu.roll - self._roll_offset_deg
+                imu.body_pitch = imu.pitch - self._pitch_offset_deg
 
                 # 应用零偏校准：补偿安装倾斜 / 温漂
                 if self._calibrated:
@@ -271,7 +277,7 @@ class IMUReader(BaseSensorReader):
                 # 没有新帧时只沿用最近的完整样本，不重复推进 EMA。
                 if received_new_packet:
                     raw_brake, raw_bump, raw_tilt = _compute_imu_scores(
-                        imu.roll, imu.pitch,
+                        imu.body_roll, imu.body_pitch,
                         imu.acc_x, imu.acc_y, imu.acc_z,
                         imu.gyro_x, imu.gyro_y, imu.gyro_z,
                     )
@@ -391,6 +397,8 @@ class IMUReader(BaseSensorReader):
         return {
             "port": self.config.get("port", "/dev/ttyIMUWT61C"),
             "baudrate": int(self.config.get("baudrate", 115200)),
+            "roll_offset_deg": self._roll_offset_deg,
+            "pitch_offset_deg": self._pitch_offset_deg,
             "connected": bool(self._serial is not None and getattr(self._serial, "is_open", False)),
             "packet_counts": dict(self._packet_counts),
             "bad_checksum_count": self._bad_checksum_count,
@@ -446,6 +454,8 @@ class IMUReader(BaseSensorReader):
             roll=roll,
             pitch=pitch,
             yaw=yaw,
+            body_roll=roll,
+            body_pitch=pitch,
             acc_x=acc_x,
             acc_y=acc_y,
             acc_z=acc_z,

@@ -27,6 +27,7 @@ from src.sensors.sensor_base import BaseSensorReader
 # 协议常量
 DATA_HEADER = b"\xF4\xF3\xF2\xF1"
 DATA_END = b"\xF8\xF7\xF6\xF5"
+MAX_PAYLOAD_LEN = 2 + 255 * 5
 
 
 def parse_radar_frame(
@@ -134,6 +135,11 @@ class RadarReader(BaseSensorReader):
         self.bytes_received: int = 0
         self.valid_frame_count: int = 0
         self.invalid_frame_count: int = 0
+        self.header_count: int = 0
+        self.length_error_count: int = 0
+        self.tail_error_count: int = 0
+        self.discarded_byte_count: int = 0
+        self._last_raw_preview = bytearray()
         self.last_byte_monotonic_ns: int = 0
         self.last_valid_frame_monotonic_ns: int = 0
         self.last_error: str = ""
@@ -154,6 +160,11 @@ class RadarReader(BaseSensorReader):
                 self.bytes_received = 0
                 self.valid_frame_count = 0
                 self.invalid_frame_count = 0
+                self.header_count = 0
+                self.length_error_count = 0
+                self.tail_error_count = 0
+                self.discarded_byte_count = 0
+                self._last_raw_preview.clear()
                 self.last_byte_monotonic_ns = 0
                 self.last_valid_frame_monotonic_ns = 0
                 self.last_error = ""
@@ -205,6 +216,11 @@ class RadarReader(BaseSensorReader):
             "bytes_received": int(self.bytes_received),
             "valid_frame_count": int(self.valid_frame_count),
             "invalid_frame_count": int(self.invalid_frame_count),
+            "header_count": int(self.header_count),
+            "length_error_count": int(self.length_error_count),
+            "tail_error_count": int(self.tail_error_count),
+            "discarded_byte_count": int(self.discarded_byte_count),
+            "raw_preview_hex": bytes(self._last_raw_preview).hex(" "),
             "last_byte_monotonic_ns": int(self.last_byte_monotonic_ns),
             "last_valid_frame_monotonic_ns": int(self.last_valid_frame_monotonic_ns),
             "last_error": self.last_error,
@@ -224,6 +240,9 @@ class RadarReader(BaseSensorReader):
                 self._buffer.extend(chunk)
                 self.bytes_received += len(chunk)
                 if chunk:
+                    self._last_raw_preview.extend(chunk)
+                    if len(self._last_raw_preview) > 64:
+                        self._last_raw_preview = self._last_raw_preview[-64:]
                     self.last_byte_monotonic_ns = time.monotonic_ns()
 
             if len(self._buffer) > 4096:
@@ -284,11 +303,18 @@ class RadarReader(BaseSensorReader):
         while True:
             idx = self._buffer.find(DATA_HEADER)
             if idx < 0:
-                if len(self._buffer) > 4096:
-                    self._buffer.clear()
+                # Keep only the longest possible partial header suffix. This
+                # prevents an unrelated serial stream from growing forever
+                # while still allowing a header split across reads.
+                keep = min(len(DATA_HEADER) - 1, len(self._buffer))
+                discard = len(self._buffer) - keep
+                if discard > 0:
+                    self.discarded_byte_count += discard
+                    del self._buffer[:discard]
                 return None
 
             if idx > 0:
+                self.discarded_byte_count += idx
                 del self._buffer[:idx]
                 continue
 
@@ -296,12 +322,33 @@ class RadarReader(BaseSensorReader):
                 return None
 
             payload_len = struct.unpack("<H", self._buffer[4:6])[0]
+            self.header_count += 1
+            if payload_len > MAX_PAYLOAD_LEN:
+                self.length_error_count += 1
+                self.invalid_frame_count += 1
+                del self._buffer[0]
+                continue
             frame_total = 4 + 2 + payload_len + 4
 
             if len(self._buffer) < frame_total:
+                # A later header proves that the current length field cannot
+                # describe a complete frame. Resynchronize immediately rather
+                # than waiting until the buffer-size safety limit is reached.
+                next_header = self._buffer.find(DATA_HEADER, len(DATA_HEADER))
+                if next_header >= 0:
+                    self.length_error_count += 1
+                    self.invalid_frame_count += 1
+                    self.discarded_byte_count += next_header
+                    del self._buffer[:next_header]
+                    continue
                 return None
 
             frame = bytes(self._buffer[:frame_total])
+            if not frame.endswith(DATA_END):
+                self.tail_error_count += 1
+                self.invalid_frame_count += 1
+                del self._buffer[0]
+                continue
             del self._buffer[:frame_total]
 
             result = parse_radar_frame(

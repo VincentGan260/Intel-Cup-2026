@@ -55,6 +55,7 @@ class MotorController:
         self.i2c_bus = i2c_bus
         self.i2c_addr = i2c_addr
         self._bus = None
+        self.last_error = ""
 
         # 加载配置
         cfg = _load_motor_config(config_path)
@@ -90,11 +91,20 @@ class MotorController:
 
                 self._bus = SMBus(self.i2c_bus)
                 self._drv2605_init()
+                self.last_error = ""
                 print(f"[MotorController] 已初始化 DRV2605 (bus={self.i2c_bus}, addr=0x{self.i2c_addr:02X})")
             except ImportError:
+                self.last_error = "smbus2 is not installed"
                 print("[MotorController] smbus2 未安装，无法驱动真实硬件。自动切换至 mock 模式。")
                 self.mode = "mock"
             except Exception as e:
+                self.last_error = str(e)
+                if self._bus is not None:
+                    try:
+                        self._bus.close()
+                    except Exception:
+                        pass
+                    self._bus = None
                 print(f"[MotorController] 硬件初始化失败: {e}。自动切换至 mock 模式。")
                 self.mode = "mock"
 

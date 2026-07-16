@@ -58,6 +58,20 @@ class IMUReaderTests(unittest.TestCase):
         self.assertAlmostEqual(data.roll, 90.0, places=2)
         self.assertAlmostEqual(data.pitch, -45.0, places=2)
 
+    def test_installation_offsets_drive_body_angles_and_tilt_score(self) -> None:
+        reader = IMUReader(mode="real", config={
+            "max_data_age_sec": 0.05,
+            "roll_offset_deg": 90.0,
+            "pitch_offset_deg": -45.0,
+        })
+        reader._serial = self.serial
+        self.serial.data = self.acc + self.gyro + self.angle
+        data = reader.read_once()
+        self.assertTrue(data.valid)
+        self.assertAlmostEqual(data.body_roll, 0.0, places=2)
+        self.assertAlmostEqual(data.body_pitch, 0.0, places=2)
+        self.assertEqual(data.tilt_score, 0.0)
+
     def test_recent_complete_sample_remains_valid_without_new_bytes(self) -> None:
         self.serial.data = self.acc + self.gyro + self.angle
         first = self.reader.read_once()

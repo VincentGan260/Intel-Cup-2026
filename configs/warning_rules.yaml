@@ -1,5 +1,5 @@
 schema_version: 1
-version: warning-rules-2026-07-16-imu-provisional
+version: warning-rules-2026-07-16-imu-aligned
 calibration_status: provisional_pending_vehicle_test
 
 score_contract:
@@ -11,7 +11,8 @@ radar:
   mounting_offset_m: -0.055
   mounting_uncertainty_m: 0.005
   point_gate_lateral_margin_m: 0.025
-  configured_warning_range_m: null
+  configured_warning_range_m: 100.0
+  configured_warning_range_source: ld2451_v1_03_default_max
   radar_parsed_to_motor_go_p95_ms: 0.469
   max_abs_angle_deg: 15.0
   attention_reference_s: 4.0
@@ -39,6 +40,7 @@ gps:
 imu:
   calibration_status: provisional_pending_vehicle_test
   roll_offset_deg: -5.296
+  pitch_offset_deg: -1.493
   turn_sign: -1.0
   gravity_mps2: 9.80665
   min_turn_compensation_speed_kmh: 3.0
@@ -61,4 +63,3 @@ freshness:
 
 state:
   release_hold_ms: 500.0
-
