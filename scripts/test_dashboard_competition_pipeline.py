@@ -89,9 +89,9 @@ def make_rule():
 
 
 def main() -> None:
-    target = RadarTarget(distance_m=5.0, relative_speed_mps=-1.0,
+    target = RadarTarget(distance_m=4.0, relative_speed_mps=-1.0,
                          angle_deg=0.63, confidence=1.0)
-    radar_data = RadarData(valid=True, targets=[target], nearest_distance_m=5.0, min_ttc=5.0)
+    radar_data = RadarData(valid=True, targets=[target], nearest_distance_m=4.0, min_ttc=4.0)
     motor = FakeMotor()
     vision = SlowVision()
     state = build_real_sensor_state(

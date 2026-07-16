@@ -19,6 +19,8 @@ import os
 import argparse
 import time
 
+import numpy as np
+
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
 from src.fusion.data_types import SystemState, now
@@ -90,13 +92,10 @@ def main():
         elif not args.camera:
             # 默认用 bus 图
             try:
-                from src.vision.common.preprocess import load_image_bgr_from_source
-                from pathlib import Path
-
-                static_frame, src_name = load_image_bgr_from_source(
-                    "https://ultralytics.com/images/bus.jpg",
-                    Path(__file__).resolve().parent.parent,
-                )
+                static_frame = np.zeros((640, 640, 3), dtype=np.uint8)
+                static_frame[260:620, 80:560] = (96, 96, 96)
+                static_frame[340:610, 260:380] = (220, 220, 220)
+                src_name = "synthetic_offline_frame"
                 print(f"  加载默认图片: {src_name}")
             except Exception as e:
                 print(f"  无法加载默认图片: {e}")

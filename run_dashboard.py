@@ -211,6 +211,7 @@ def dashboard_state_loop(
     risk_rule=None,
     motor=None,
     warning_system=None,
+    imu_warning_rule=None,
     vision_snapshot_store=None,
     target_stale_ms: float = 500.0,
     radar_communication_watchdog_ms: float = 2000.0,
@@ -302,6 +303,7 @@ def dashboard_state_loop(
                     classifier=classifier,
                     motor=motor,
                     warning_system=warning_system,
+                    imu_warning_rule=imu_warning_rule,
                     target_stale_ms=target_stale_ms,
                     radar_communication_watchdog_ms=radar_communication_watchdog_ms,
                     record_sample=record_sample,
@@ -351,7 +353,26 @@ def dashboard_state_loop(
 
 
 def main() -> None:
+    from src.fusion.warning_config import load_warning_rule_config
+
+    default_warning_config = _project_root / "configs" / "warning_rules.yaml"
+    config_parser = argparse.ArgumentParser(add_help=False)
+    config_parser.add_argument("--warning-config", default=str(default_warning_config))
+    config_args, _ = config_parser.parse_known_args()
+    warning_config_path = Path(config_args.warning_config)
+    if not warning_config_path.is_absolute():
+        warning_config_path = _project_root / warning_config_path
+    warning_config = load_warning_rule_config(warning_config_path)
+    radar_defaults = warning_config.section("radar")
+    vision_defaults = warning_config.section("vision")
+    gps_defaults = warning_config.section("gps")
+    imu_defaults = warning_config.section("imu")
+    freshness_defaults = warning_config.section("freshness")
+    state_defaults = warning_config.section("state")
+
     parser = argparse.ArgumentParser(description="骑手前向安全预警 Dashboard")
+    parser.add_argument("--warning-config", default=str(warning_config_path),
+                        help="versioned competition warning-rule configuration")
     parser.add_argument("--host", type=str, default="0.0.0.0", help="监听地址")
     parser.add_argument("--port", type=int, default=8000, help="监听端口")
     parser.add_argument("--camera-id", type=int, default=0, help="摄像头设备编号")
@@ -423,40 +444,100 @@ def main() -> None:
                         help="比赛版风险规则的马达输出模式")
     parser.add_argument("--confirm-motor-real", action="store_true",
                         help="确认真实驱动DRV2605；--motor-mode real时必须提供")
-    parser.add_argument("--configured-warning-range-m", type=float, default=None,
+    parser.add_argument("--configured-warning-range-m", type=float,
+                        default=radar_defaults.get("configured_warning_range_m"),
                         help="与LD2451 APP最远检测距离一致的比赛工作范围")
     parser.add_argument("--radar-parsed-to-motor-go-p95-ms", "--radar-to-motor-p95-ms",
-                        dest="radar_parsed_to_motor_go_p95_ms", type=float, default=0.469,
+                        dest="radar_parsed_to_motor_go_p95_ms", type=float,
+                        default=float(radar_defaults["radar_parsed_to_motor_go_p95_ms"]),
                         help="雷达帧解析完成到DRV2605 GO写入的P95，默认0.469 ms")
     parser.add_argument("--point-gate-lateral-margin-m", type=float,
-                        choices=[0.015, 0.025, 0.035], default=0.025,
+                        choices=[0.015, 0.025, 0.035],
+                        default=float(radar_defaults["point_gate_lateral_margin_m"]),
                         help="competition point-gate lateral margin candidate")
     parser.add_argument("--urgent-reference-s", type=float, choices=[2.0, 2.5, 3.0],
-                        default=2.5,
+                        default=float(radar_defaults["urgent_reference_s"]),
                         help="reaction-time urgency reference candidate; not a stopping threshold")
+    parser.add_argument("--attention-reference-s", type=float,
+                        default=float(radar_defaults["attention_reference_s"]),
+                        help="attention-time reference; not a stopping threshold")
     parser.add_argument("--vision-path-policy", choices=["any", "center", "two_of_three"],
-                        default="center",
+                        default=str(vision_defaults["path_policy"]),
                         help="visual path obstacle rule: any, center or two_of_three bottom points")
-    parser.add_argument("--vision-corridor-top-y-ratio", type=float, default=0.40)
-    parser.add_argument("--vision-corridor-top-width-ratio", type=float, default=0.10)
-    parser.add_argument("--vision-corridor-bottom-width-ratio", type=float, default=0.50)
-    parser.add_argument("--vision-near-bottom-ratio", type=float, default=0.61)
-    parser.add_argument("--vision-very-near-bottom-ratio", type=float, default=0.82)
-    parser.add_argument("--vision-attention-tau-s", type=float, default=4.0)
-    parser.add_argument("--vision-urgent-tau-s", type=float, default=2.5)
-    parser.add_argument("--vision-temporal-window-s", type=float, default=0.5)
-    parser.add_argument("--vision-min-history-s", type=float, default=0.2)
-    parser.add_argument("--vision-min-observations", type=int, default=3)
-    parser.add_argument("--vision-track-iou-threshold", type=float, default=0.30)
-    parser.add_argument("--target-stale-ms", type=float, default=500.0,
+    parser.add_argument("--vision-corridor-top-y-ratio", type=float,
+                        default=float(vision_defaults["corridor_top_y_ratio"]))
+    parser.add_argument("--vision-corridor-top-width-ratio", type=float,
+                        default=float(vision_defaults["corridor_top_width_ratio"]))
+    parser.add_argument("--vision-corridor-bottom-width-ratio", type=float,
+                        default=float(vision_defaults["corridor_bottom_width_ratio"]))
+    parser.add_argument("--vision-near-bottom-ratio", type=float,
+                        default=float(vision_defaults["near_bottom_ratio"]))
+    parser.add_argument("--vision-very-near-bottom-ratio", type=float,
+                        default=float(vision_defaults["very_near_bottom_ratio"]))
+    parser.add_argument("--vision-attention-tau-s", type=float,
+                        default=float(vision_defaults["attention_tau_s"]))
+    parser.add_argument("--vision-urgent-tau-s", type=float,
+                        default=float(vision_defaults["urgent_tau_s"]))
+    parser.add_argument("--vision-temporal-window-s", type=float,
+                        default=float(vision_defaults["temporal_window_s"]))
+    parser.add_argument("--vision-min-history-s", type=float,
+                        default=float(vision_defaults["min_history_s"]))
+    parser.add_argument("--vision-min-observations", type=int,
+                        default=int(vision_defaults["min_observations"]))
+    parser.add_argument("--vision-track-iou-threshold", type=float,
+                        default=float(vision_defaults["track_iou_threshold"]))
+    parser.add_argument("--target-stale-ms", type=float,
+                        default=float(freshness_defaults["target_stale_ms"]),
                         help="有目标100ms周期的5倍工程容错值")
-    parser.add_argument("--radar-communication-watchdog-ms", type=float, default=2000.0,
+    parser.add_argument("--radar-communication-watchdog-ms", type=float,
+                        default=float(freshness_defaults["radar_communication_watchdog_ms"]),
                         help="无目标约1s周期的2倍工程通信看门狗")
-    parser.add_argument("--vision-stale-ms", type=float, default=500.0,
+    parser.add_argument("--vision-stale-ms", type=float,
+                        default=float(freshness_defaults["vision_stale_ms"]),
                         help="视觉事件工程时效窗口")
-    parser.add_argument("--release-hold-ms", type=float, default=500.0,
+    parser.add_argument("--release-hold-ms", type=float,
+                        default=float(state_defaults["release_hold_ms"]),
                         help="风险降级去抖窗口，只延迟降级")
     args = parser.parse_args()
+
+    if (args.dashboard_mode == "real" and args.enable_risk_rule
+            and args.enable_imu and args.state_hz < 20):
+        print("[IMURisk] state loop raised to 20 Hz for three-sample urgent confirmation")
+        args.state_hz = 20
+
+    effective_warning_parameters = {
+        "radar": {**radar_defaults,
+                  "configured_warning_range_m": args.configured_warning_range_m,
+                  "radar_parsed_to_motor_go_p95_ms": args.radar_parsed_to_motor_go_p95_ms,
+                  "point_gate_lateral_margin_m": args.point_gate_lateral_margin_m,
+                  "attention_reference_s": args.attention_reference_s,
+                  "urgent_reference_s": args.urgent_reference_s},
+        "vision": {"path_policy": args.vision_path_policy,
+                   "corridor_top_y_ratio": args.vision_corridor_top_y_ratio,
+                   "corridor_top_width_ratio": args.vision_corridor_top_width_ratio,
+                   "corridor_bottom_width_ratio": args.vision_corridor_bottom_width_ratio,
+                   "near_bottom_ratio": args.vision_near_bottom_ratio,
+                   "very_near_bottom_ratio": args.vision_very_near_bottom_ratio,
+                   "attention_tau_s": args.vision_attention_tau_s,
+                   "urgent_tau_s": args.vision_urgent_tau_s,
+                   "temporal_window_s": args.vision_temporal_window_s,
+                   "min_history_s": args.vision_min_history_s,
+                   "min_observations": args.vision_min_observations,
+                   "track_iou_threshold": args.vision_track_iou_threshold},
+        "gps": gps_defaults,
+        "imu": imu_defaults,
+        "freshness": {"target_stale_ms": args.target_stale_ms,
+                      "vision_stale_ms": args.vision_stale_ms,
+                      "gps_stale_ms": float(freshness_defaults["gps_stale_ms"]),
+                      "imu_stale_ms": float(freshness_defaults["imu_stale_ms"]),
+                      "radar_communication_watchdog_ms":
+                          args.radar_communication_watchdog_ms},
+        "state": {"release_hold_ms": args.release_hold_ms},
+    }
+    warning_rule_metadata = {
+        **warning_config.metadata,
+        "effective_parameters": effective_warning_parameters,
+    }
 
     if args.enable_risk_rule:
         required_values = {
@@ -472,6 +553,8 @@ def main() -> None:
         if (args.target_stale_ms <= 0 or args.radar_communication_watchdog_ms <= 0
                 or args.vision_stale_ms <= 0 or args.release_hold_ms <= 0):
             parser.error("radar watchdog values must be positive")
+        if args.attention_reference_s <= args.urgent_reference_s:
+            parser.error("attention reference must exceed urgent reference")
     if args.motor_mode == "real" and not args.confirm_motor_real:
         parser.error("--motor-mode real requires --confirm-motor-real")
     if args.motor_mode != "off" and not args.enable_risk_rule:
@@ -482,6 +565,10 @@ def main() -> None:
         (_project_root / "configs" / "dashboard_recording.yaml").read_text(encoding="utf-8")
     )
     sync_thresholds = recording_cfg["sync"]
+    if float(sync_thresholds["gps_max_delta_ms"]) != float(
+            freshness_defaults["gps_stale_ms"]):
+        parser.error(
+            "warning GPS stale threshold must match dashboard recording sync threshold")
 
     # ── 1. 创建摄像头 ──
     from src.dashboard.frame_producer import CameraFrameProducer
@@ -516,6 +603,7 @@ def main() -> None:
     motor_controller = None
     warning_system = None
     vision_warning_rule = None
+    imu_warning_rule = None
 
     if args.dashboard_mode == "real":
         from src.sensors.gps_reader import GPSReader
@@ -557,15 +645,16 @@ def main() -> None:
             from src.fusion.physical_risk_rule import PhysicalRiskRule
 
             competition_risk_rule = PhysicalRiskRule(
-                body_width_m=0.66,
+                body_width_m=float(radar_defaults["body_width_m"]),
                 point_gate_lateral_margin_m=args.point_gate_lateral_margin_m,
-                mounting_offset_m=-0.055,
-                mounting_uncertainty_m=0.005,
+                mounting_offset_m=float(radar_defaults["mounting_offset_m"]),
+                mounting_uncertainty_m=float(radar_defaults["mounting_uncertainty_m"]),
                 configured_warning_range_m=args.configured_warning_range_m,
                 radar_parsed_to_motor_go_p95_s=(
                     args.radar_parsed_to_motor_go_p95_ms / 1000.0),
+                attention_reference_s=args.attention_reference_s,
                 urgent_reference_s=args.urgent_reference_s,
-                max_abs_angle_deg=15.0,
+                max_abs_angle_deg=float(radar_defaults["max_abs_angle_deg"]),
             )
             print("[CompetitionRisk] radar TTC urgency rule enabled")
             print(f"[CompetitionRisk] configured_range={args.configured_warning_range_m:.2f}m, "
@@ -586,12 +675,48 @@ def main() -> None:
                 motor_controller.start()
 
             from src.fusion.warning_system import MultimodalWarningSystem
+            from src.fusion.gps_risk_context import GpsSpeedModifierConfig
+            if imu_init_ok:
+                from src.fusion.imu_warning_rule import (
+                    ImuWarningRule,
+                    ImuWarningRuleConfig,
+                )
+                imu_warning_rule = ImuWarningRule(ImuWarningRuleConfig(
+                    calibration_status=str(imu_defaults["calibration_status"]),
+                    roll_offset_deg=float(imu_defaults["roll_offset_deg"]),
+                    turn_sign=float(imu_defaults["turn_sign"]),
+                    gravity_mps2=float(imu_defaults["gravity_mps2"]),
+                    min_turn_compensation_speed_kmh=float(
+                        imu_defaults["min_turn_compensation_speed_kmh"]),
+                    attention_error_deg=float(imu_defaults["attention_error_deg"]),
+                    critical_error_deg=float(imu_defaults["critical_error_deg"]),
+                    attention_outward_rate_deg_s=float(
+                        imu_defaults["attention_outward_rate_deg_s"]),
+                    urgent_outward_rate_deg_s=float(
+                        imu_defaults["urgent_outward_rate_deg_s"]),
+                    attention_persistence_ms=float(
+                        imu_defaults["attention_persistence_ms"]),
+                    prediction_horizon_s=float(imu_defaults["prediction_horizon_s"]),
+                    urgent_min_error_deg=float(imu_defaults["urgent_min_error_deg"]),
+                    urgent_consistent_samples=int(
+                        imu_defaults["urgent_consistent_samples"]),
+                    max_sample_gap_ms=float(imu_defaults["max_sample_gap_ms"]),
+                ))
             warning_system = MultimodalWarningSystem(
                 motor=motor_controller,
                 target_stale_ms=args.target_stale_ms,
                 vision_stale_ms=args.vision_stale_ms,
+                gps_stale_ms=float(freshness_defaults["gps_stale_ms"]),
+                imu_stale_ms=float(freshness_defaults["imu_stale_ms"]),
+                imu_enabled=bool(imu_init_ok),
+                gps_modifier_config=GpsSpeedModifierConfig(
+                    neutral_below_kmh=float(gps_defaults["neutral_below_kmh"]),
+                    full_effect_kmh=float(gps_defaults["full_effect_kmh"]),
+                    max_factor=float(gps_defaults["max_factor"]),
+                ),
                 release_hold_ms=args.release_hold_ms,
                 radar_communication_watchdog_ms=args.radar_communication_watchdog_ms,
+                rule_config_metadata=warning_rule_metadata,
             )
 
         if args.enable_vision:
@@ -649,7 +774,8 @@ def main() -> None:
             )
             session_fields = {"operator": args.operator, "route": args.route,
                               "weather": args.weather, "road_condition": args.road_condition,
-                              "group_id": args.group_id or args.scene}
+                              "group_id": args.group_id or args.scene,
+                              "warning_rule_config": warning_rule_metadata}
             recorder = DashboardRecorder(
                 record_root, args.scene, args.profile,
                 recording_config=recording_cfg, session_fields=session_fields,
@@ -819,6 +945,7 @@ def main() -> None:
             "risk_rule": competition_risk_rule,
             "motor": motor_controller,
             "warning_system": warning_system,
+            "imu_warning_rule": imu_warning_rule,
             "vision_snapshot_store": vision_snapshot_store,
             "target_stale_ms": args.target_stale_ms,
             "radar_communication_watchdog_ms": args.radar_communication_watchdog_ms,

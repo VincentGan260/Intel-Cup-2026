@@ -2,7 +2,13 @@
 
 from src.vision.common.interfaces import BaseDetector, BaseSegmenter
 from src.vision.common.types import BBox, DetectionResult, SegmentationResult, VisionResult
-from src.vision.perception.vision_pipeline import VisionPipeline
+
+
+def __getattr__(name: str):
+    if name == "VisionPipeline":
+        from src.vision.perception.vision_pipeline import VisionPipeline
+        return VisionPipeline
+    raise AttributeError(name)
 
 __all__ = [
     "BBox",

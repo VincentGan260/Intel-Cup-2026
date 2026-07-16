@@ -2,10 +2,17 @@
 
 from __future__ import annotations
 
+import os
 from pathlib import Path
 from typing import List, Optional
 
 import numpy as np
+
+PROJECT_ROOT = Path(__file__).resolve().parents[4]
+YOLO_CONFIG_ROOT = PROJECT_ROOT / "tmp" / "ultralytics"
+YOLO_CONFIG_ROOT.mkdir(parents=True, exist_ok=True)
+os.environ.setdefault("YOLO_CONFIG_DIR", str(YOLO_CONFIG_ROOT))
+
 from ultralytics import YOLO, settings
 
 from src.vision.common.interfaces import BaseDetector

@@ -1,0 +1,64 @@
+schema_version: 1
+version: warning-rules-2026-07-16-imu-provisional
+calibration_status: provisional_pending_vehicle_test
+
+score_contract:
+  attention_boundary: 0.35
+  high_boundary: 0.70
+
+radar:
+  body_width_m: 0.66
+  mounting_offset_m: -0.055
+  mounting_uncertainty_m: 0.005
+  point_gate_lateral_margin_m: 0.025
+  configured_warning_range_m: null
+  radar_parsed_to_motor_go_p95_ms: 0.469
+  max_abs_angle_deg: 15.0
+  attention_reference_s: 4.0
+  urgent_reference_s: 2.5
+
+vision:
+  path_policy: center
+  corridor_top_y_ratio: 0.40
+  corridor_top_width_ratio: 0.10
+  corridor_bottom_width_ratio: 0.50
+  near_bottom_ratio: 0.61
+  very_near_bottom_ratio: 0.82
+  attention_tau_s: 4.0
+  urgent_tau_s: 2.5
+  temporal_window_s: 0.5
+  min_history_s: 0.2
+  min_observations: 3
+  track_iou_threshold: 0.30
+
+gps:
+  neutral_below_kmh: 5.0
+  full_effect_kmh: 30.0
+  max_factor: 1.25
+
+imu:
+  calibration_status: provisional_pending_vehicle_test
+  roll_offset_deg: -5.296
+  turn_sign: -1.0
+  gravity_mps2: 9.80665
+  min_turn_compensation_speed_kmh: 3.0
+  attention_error_deg: 10.0
+  critical_error_deg: 25.0
+  attention_outward_rate_deg_s: 5.0
+  urgent_outward_rate_deg_s: 10.0
+  attention_persistence_ms: 150.0
+  prediction_horizon_s: 0.8
+  urgent_min_error_deg: 8.0
+  urgent_consistent_samples: 3
+  max_sample_gap_ms: 250.0
+
+freshness:
+  target_stale_ms: 500.0
+  vision_stale_ms: 500.0
+  gps_stale_ms: 1000.0
+  imu_stale_ms: 100.0
+  radar_communication_watchdog_ms: 2000.0
+
+state:
+  release_hold_ms: 500.0
+

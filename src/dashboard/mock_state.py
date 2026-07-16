@@ -32,6 +32,7 @@ def build_mock_state(camera_available: bool = False) -> dict:
 
     # 主风险分数：周期 ~15 秒，范围 [0, 1]
     risk_score = 0.5 + 0.5 * math.sin(t * 0.42)
+    imu_risk_score = 0.12 + 0.05 * abs(math.sin(t * 0.7))
 
     # 四项分解：不同相位
     risk_items = {
@@ -60,6 +61,9 @@ def build_mock_state(camera_available: bool = False) -> dict:
     return {
         "timestamp": time.time(),
         "risk_score": round(risk_score, 4),
+        "radar_score": risk_items["dist"],
+        "vision_score": risk_items["obs"],
+        "imu_score": round(imu_risk_score, 2),
         "risk_level": level,
         "risk_label": label,
         "risk_items": risk_items,
@@ -105,6 +109,13 @@ def build_mock_state(camera_available: bool = False) -> dict:
             "brake_score": 0.08,
             "bump_score": 0.05,
             "tilt_score": 0.12,
+            "risk_level": 0,
+            "risk_score": round(imu_risk_score, 2),
+            "risk_status": "usable",
+            "turn_compensation_status": "usable",
+            "roll_error_deg": round(2.0 * math.sin(t * 0.8), 1),
+            "outward_rate_deg_s": round(abs(1.5 * math.sin(t * 0.7)), 1),
+            "time_to_critical_s": None,
         },
         "performance": {
             "vision_infer_ms": 0.0,

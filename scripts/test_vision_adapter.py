@@ -28,13 +28,11 @@ def read_image_safe(path: str):
 
 
 def load_default_image():
-    """延迟导入 load_image_bgr_from_source。"""
-    from src.vision.common.preprocess import load_image_bgr_from_source
-    from pathlib import Path
-    return load_image_bgr_from_source(
-        "https://ultralytics.com/images/bus.jpg",
-        Path(__file__).resolve().parent.parent,
-    )
+    """Build a deterministic local frame so this smoke test works offline."""
+    frame = np.zeros((640, 640, 3), dtype=np.uint8)
+    frame[260:620, 80:560] = (96, 96, 96)
+    frame[340:610, 260:380] = (220, 220, 220)
+    return frame, "synthetic_offline_frame"
 
 
 def test_with_image(image_source: str = None) -> None:

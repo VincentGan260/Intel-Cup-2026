@@ -180,8 +180,8 @@ Intel-Cup-2026/
 │  ├─ guide/
 │  │  ├─ team_development_guide.md
 │  │  ├─ environment_guide.md
-│  │  ├─ deployment_guide.md
-│  │  └─ vision_development_guide.md
+│  │  ├─ vision_development_guide.md
+│  │  └─ warning_rule_workflow.md
 │  └─ plan/
 │     └─ vision_plan.md
 ├─ app/

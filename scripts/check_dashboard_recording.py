@@ -21,6 +21,50 @@ def _stats(values: list[float]) -> dict:
             "p95": _percentile(values, 0.95), "max": max(values) if values else 0.0}
 
 
+def _validate_risk_timing(rows: list[dict], errors: list[str]) -> int:
+    present = [bool(row.get("risk_decision")) for row in rows]
+    if not any(present):
+        return 0
+    if not all(present):
+        errors.append("风险决策时间字段只出现在部分样本中")
+
+    decisions: list[int] = []
+    for index, row in enumerate(rows):
+        risk = row.get("risk_decision") or {}
+        if not risk:
+            continue
+        timestamps = row.get("timestamps") or {}
+        decision_ns = int(risk.get("risk_decision_monotonic_ns")
+                          or risk.get("decision_monotonic_ns") or 0)
+        recorded_ns = int(timestamps.get("risk_decision_monotonic_ns") or 0)
+        effective_ns = int(risk.get("risk_effective_updated_monotonic_ns") or 0)
+        if decision_ns <= 0 or recorded_ns != decision_ns:
+            errors.append(f"样本 {index} 的风险决策时间缺失或与 timestamps 不一致")
+            continue
+        decisions.append(decision_ns)
+        if effective_ns <= 0 or effective_ns > decision_ns:
+            errors.append(f"样本 {index} 的有效风险更新时间晚于决策时刻")
+
+        alignment = risk.get("risk_timestamp_alignment")
+        if alignment == "as_of_latest_fresh" and effective_ns != decision_ns:
+            errors.append(f"样本 {index} 的当前风险未绑定当前决策时刻")
+        if alignment == "downgrade_held" and effective_ns >= decision_ns:
+            errors.append(f"样本 {index} 的降级保持未保留原风险时刻")
+        if alignment == "no_usable_warning_modality" and risk.get("risk_source_timing"):
+            errors.append(f"样本 {index} 无可用模态却记录了有效风险证据")
+
+        for field in ("risk_source_timing", "raw_risk_source_timing"):
+            for source, timing in (risk.get(field) or {}).items():
+                capture_ns = int(timing.get("capture_monotonic_ns") or 0)
+                completed_ns = int(timing.get("completed_monotonic_ns") or 0)
+                if not (0 < capture_ns <= completed_ns <= decision_ns):
+                    errors.append(
+                        f"样本 {index} 的 {source} {field} 不满足采集<=完成<=决策")
+    if any(b <= a for a, b in zip(decisions, decisions[1:])):
+        errors.append("风险决策时间未严格递增")
+    return sum(present)
+
+
 def check_session(session_dir: Path) -> tuple[dict, int]:
     session_dir = session_dir.resolve()
     errors: list[str] = []
@@ -49,6 +93,7 @@ def check_session(session_dir: Path) -> tuple[dict, int]:
         errors.append("sample_id 不从 0 连续递增")
     if meta.get("sample_count") != len(rows):
         errors.append(f"session sample_count={meta.get('sample_count')}，JSONL 行数={len(rows)}")
+    risk_timing_rows = _validate_risk_timing(rows, errors)
     camera_ns = [row.get("timestamps", {}).get("frame_capture_monotonic_ns", 0) for row in rows]
     if any(b <= a for a, b in zip(camera_ns, camera_ns[1:])):
         errors.append("相机主时间戳未严格递增")
@@ -164,6 +209,7 @@ def check_session(session_dir: Path) -> tuple[dict, int]:
             break
     report = {
         "passed": not errors, "errors": errors, "sample_count": len(rows),
+        "risk_timestamp_aligned_rows": risk_timing_rows,
         "modalities": modalities, "actual_sample_hz": actual_hz,
         "sample_interval_ms": _stats(intervals), "vision_latency_ms": _stats(vision_latency),
         "radar_delta_ms": {**_stats([abs(x) for x in radar_delta]),

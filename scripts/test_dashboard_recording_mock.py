@@ -22,7 +22,7 @@ from src.sensors.radar_reader import RadarReader
 
 
 def main() -> int:
-    output = Path("/tmp/intelcup_dashboard_recording_mock")
+    output = ROOT / "tmp" / "intelcup_dashboard_recording_mock"
     if output.exists():
         shutil.rmtree(output)
     cfg = yaml.safe_load((ROOT / "configs" / "dashboard_recording.yaml").read_text(encoding="utf-8"))
@@ -38,6 +38,21 @@ def main() -> int:
         vision = VisionData(valid=True, objects=[VisionObject(class_name="obstacle", confidence=.8)],
                             drivable_area_ratio=.4, max_confidence=.8)
         vision_finish = time.monotonic_ns()
+        decision_ns = time.monotonic_ns()
+        risk_timing = {
+            "radar": {"capture_monotonic_ns": radar_end,
+                      "completed_monotonic_ns": radar_end},
+            "vision": {"capture_monotonic_ns": capture,
+                       "completed_monotonic_ns": vision_finish},
+        }
+        risk_decision = {
+            "risk_decision_monotonic_ns": decision_ns,
+            "risk_effective_updated_monotonic_ns": decision_ns,
+            "risk_timestamp_alignment": "as_of_latest_fresh",
+            "risk_source_timing": risk_timing,
+            "raw_risk_source_timing": risk_timing,
+            "warning_level": 1,
+        }
         stamps = {"frame_capture_monotonic_ns": capture,
                   "radar_read_start_monotonic_ns": radar_start,
                   "radar_read_end_monotonic_ns": radar_end,
@@ -47,12 +62,14 @@ def main() -> int:
                   "gps_sample_monotonic_ns": gps_end,
                   "vision_start_monotonic_ns": vision_start,
                   "vision_finish_monotonic_ns": vision_finish,
+                  "risk_decision_monotonic_ns": decision_ns,
+                  "risk_effective_updated_monotonic_ns": decision_ns,
                   "radar_delta_ms": (radar_end-capture)/1e6,
                   "gps_delta_ms": (gps_end-capture)/1e6,
                   "vision_latency_ms": (vision_finish-vision_start)/1e6}
         recorder.write(np.zeros((48, 64, 3), np.uint8), radar, gps, vision, None,
                        stamps["vision_latency_ms"], stamps, camera_frame_id=index,
-                       radar_valid=True, gps_valid=True)
+                       radar_valid=True, gps_valid=True, risk_decision=risk_decision)
         time.sleep(.01)
     checkpoint = json.loads((recorder.session_dir / "session.json").read_text(encoding="utf-8"))
     assert checkpoint["status"] == "recording" and checkpoint["sample_count"] == 7
@@ -66,6 +83,9 @@ def main() -> int:
     build = subprocess.run([sys.executable, str(ROOT / "scripts/build_gt_mrfn_dataset.py"),
                             str(recorder.session_dir), "--output", str(dataset)], check=False)
     assert check.returncode == 0 and build.returncode == 0 and dataset.is_file()
+    quality = json.loads(
+        (recorder.session_dir / "quality_report.json").read_text(encoding="utf-8"))
+    assert quality["risk_timestamp_aligned_rows"] == 7
     with np.load(dataset) as data:
         assert data["X"].shape[0] == 3 and data["X"].shape[1] == 5
     print("Dashboard recording mock E2E: PASS")

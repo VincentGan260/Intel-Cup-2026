@@ -7,13 +7,17 @@ from typing import Any
 
 import numpy as np
 
+from src.fusion.risk_score_contract import (
+    ATTENTION_SCORE as SHARED_ATTENTION_SCORE,
+    HIGH_SCORE as SHARED_HIGH_SCORE,
+)
 from src.fusion.warning_events import ModalityEvent
 
 
 class VisionWarningRule:
     VALID_PATH_POLICIES = {"any", "center", "two_of_three"}
-    ATTENTION_SCORE = 0.35
-    HIGH_SCORE = 0.70
+    ATTENTION_SCORE = SHARED_ATTENTION_SCORE
+    HIGH_SCORE = SHARED_HIGH_SCORE
 
     def __init__(self, *, path_policy: str = "center",
                  corridor_top_y_ratio: float = 0.40,

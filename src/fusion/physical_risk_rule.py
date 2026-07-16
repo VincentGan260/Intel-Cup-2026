@@ -5,6 +5,10 @@ import math
 from dataclasses import dataclass
 from typing import Any, Optional
 
+from src.fusion.risk_score_contract import (
+    ATTENTION_SCORE as SHARED_ATTENTION_SCORE,
+    HIGH_SCORE as SHARED_HIGH_SCORE,
+)
 from src.fusion.warning_events import ModalityEvent
 
 
@@ -42,8 +46,8 @@ class PhysicalRiskRule:
     a stopping-safety threshold and contains no braking-time model.
     """
 
-    ATTENTION_SCORE = 0.35
-    HIGH_SCORE = 0.70
+    ATTENTION_SCORE = SHARED_ATTENTION_SCORE
+    HIGH_SCORE = SHARED_HIGH_SCORE
 
     def __init__(
         self,

@@ -1,5 +1,8 @@
 # Intel-Cup-2026 依赖包
 
+# Dashboard运行时依赖由标准安装入口统一包含。
+-r requirements/dashboard.txt
+
 # 核心依赖
 ultralytics>=8.0.0
 openvino>=2024.0.0

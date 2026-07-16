@@ -89,6 +89,9 @@ class IMUReader(BaseSensorReader):
         self._buffer = bytearray()
         self._component_values: dict[str, tuple[float, float, float]] = {}
         self._component_times: dict[str, float] = {}
+        # Oldest component time is the causal capture time of the combined
+        # acc/gyro/angle sample. Consumers must not replace it with read time.
+        self.last_sample_monotonic_ns: int = 0
         self._max_data_age_sec = float(self.config.get("max_data_age_sec", 0.5))
         self._packet_counts = {"acc": 0, "gyro": 0, "angle": 0}
         self._bad_checksum_count = 0
@@ -130,6 +133,7 @@ class IMUReader(BaseSensorReader):
             self._buffer.clear()
             self._component_values.clear()
             self._component_times.clear()
+            self.last_sample_monotonic_ns = 0
         return connected
 
     def _run_calibration(self) -> None:
@@ -253,6 +257,9 @@ class IMUReader(BaseSensorReader):
             )
 
             if components_fresh:
+                self.last_sample_monotonic_ns = int(
+                    min(self._component_times[name] for name in required)
+                    * 1_000_000_000)
                 imu.acc_x, imu.acc_y, imu.acc_z = self._component_values["acc"]
                 imu.gyro_x, imu.gyro_y, imu.gyro_z = self._component_values["gyro"]
                 imu.roll, imu.pitch, imu.yaw = self._component_values["angle"]
@@ -389,6 +396,7 @@ class IMUReader(BaseSensorReader):
             "bad_checksum_count": self._bad_checksum_count,
             "discarded_byte_count": self._discarded_byte_count,
             "component_arrival_monotonic_ns": component_arrival_ns,
+            "sample_capture_monotonic_ns": self.last_sample_monotonic_ns,
             "component_age_ms": component_age_ms,
             "component_skew_ms": component_skew_ms,
             "last_error": self.last_error,
@@ -398,6 +406,7 @@ class IMUReader(BaseSensorReader):
 
     def _read_mock(self, ts: float) -> IMUData:
         """模拟 IMU 数据，小幅随机变化，并生成合理评分。"""
+        self.last_sample_monotonic_ns = time.monotonic_ns()
         self._mock_roll += random.uniform(-0.5, 0.5)
         self._mock_pitch += random.uniform(-0.5, 0.5)
         self._mock_yaw += random.uniform(-1.0, 1.0)

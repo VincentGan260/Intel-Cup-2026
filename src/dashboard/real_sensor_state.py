@@ -119,6 +119,7 @@ def build_real_sensor_state(
     classifier=None,
     motor=None,
     warning_system=None,
+    imu_warning_rule=None,
     target_stale_ms: float = 500.0,
     radar_communication_watchdog_ms: float = 2000.0,
     record_sample: bool = True,
@@ -162,11 +163,15 @@ def build_real_sensor_state(
     gps_start_ns = time.monotonic_ns()
     gps = gps_reader.read_once()
     gps_end_ns = time.monotonic_ns()
+    imu_start_ns = time.monotonic_ns()
     if imu_reader is not None:
         imu = imu_reader.read_once()
     else:
         from src.fusion.data_types import IMUData
         imu = IMUData(timestamp=time.time(), valid=False)
+    imu_end_ns = time.monotonic_ns()
+    imu_sample_ns = int(
+        getattr(imu_reader, "last_sample_monotonic_ns", 0) or 0)
     gps_sample_ns = int(getattr(gps_reader, "last_sample_monotonic_ns", 0) or 0)
     camera_ns = frame_capture_monotonic_ns or radar_start_ns
     radar_delta_ms = ((radar_sample_ns - camera_ns) / 1_000_000.0 if radar_sample_ns else None)
@@ -180,6 +185,35 @@ def build_real_sensor_state(
     )
     gps_fresh = (gps_delta_ms is not None and
                  abs(gps_delta_ms) <= float(sync_thresholds["gps_max_delta_ms"]))
+    if warning_system is not None:
+        from src.fusion.warning_events import ModalityEvent
+
+        gps_usable = bool(gps.valid) and gps_fresh
+        warning_system.publish_gps(ModalityEvent(
+            source="gps", source_id=str(gps_sample_ns), sequence=gps_sample_ns,
+            capture_monotonic_ns=gps_sample_ns,
+            completed_monotonic_ns=gps_end_ns,
+            usable=gps_usable, level=0 if gps_usable else None,
+            reason=("gps_speed_context" if gps_usable
+                    else "gps_context_stale" if gps.valid else "gps_context_invalid"),
+            status=("usable" if gps_usable else "stale" if gps.valid else "invalid"),
+            details={"speed_kmh": float(gps.speed_kmh)},
+        ))
+        if imu_warning_rule is not None:
+            imu_capture_ns = imu_sample_ns or imu_start_ns
+            imu_gps_context_usable = bool(
+                gps.valid and gps_sample_ns > 0
+                and abs(imu_capture_ns - gps_sample_ns)
+                <= float(sync_thresholds["gps_max_delta_ms"]) * 1_000_000.0)
+            imu_event = imu_warning_rule.evaluate_event(
+                imu,
+                capture_monotonic_ns=imu_capture_ns,
+                completed_monotonic_ns=imu_end_ns,
+                sequence=imu_capture_ns,
+                gps_speed_kmh=float(gps.speed_kmh),
+                gps_usable=imu_gps_context_usable,
+            )
+            warning_system.publish_imu(imu_event, now_ns=imu_end_ns)
 
     vision = None
     fusion = None
@@ -222,6 +256,9 @@ def build_real_sensor_state(
         "gps_read_start_monotonic_ns": gps_start_ns,
         "gps_read_end_monotonic_ns": gps_end_ns,
         "gps_sample_monotonic_ns": gps_sample_ns,
+        "imu_read_start_monotonic_ns": imu_start_ns,
+        "imu_read_end_monotonic_ns": imu_end_ns,
+        "imu_sample_monotonic_ns": imu_sample_ns,
         "vision_start_monotonic_ns": vision_start_ns,
         "vision_finish_monotonic_ns": vision_finish_ns,
         "radar_age_ms": radar_age_ms,
@@ -236,6 +273,14 @@ def build_real_sensor_state(
     }
     warning_snapshot = warning_system.snapshot() if warning_system is not None else None
     if warning_snapshot is not None:
+        timestamps["risk_decision_monotonic_ns"] = int(
+            warning_snapshot["risk_decision_monotonic_ns"])
+        timestamps["risk_effective_updated_monotonic_ns"] = int(
+            warning_snapshot["risk_effective_updated_monotonic_ns"])
+        timestamps["risk_source_timing"] = warning_snapshot["risk_source_timing"]
+        timestamps["raw_risk_source_timing"] = warning_snapshot["raw_risk_source_timing"]
+        timestamps["risk_timestamp_alignment"] = warning_snapshot[
+            "risk_timestamp_alignment"]
         latest_radar_event = warning_snapshot.get("radar_event")
         dispatch_ns = int(getattr(motor, "last_dispatch_monotonic_ns", 0) or 0)
         parsed_ns = int(getattr(latest_radar_event, "capture_monotonic_ns", 0) or 0)
@@ -343,6 +388,7 @@ def build_real_sensor_state(
                      (level / 2.0 if level is not None and status != "unknown" else None))
 
     radar_warning_event = warning_snapshot.get("radar_event") if warning_snapshot else None
+    imu_warning_event = warning_snapshot.get("imu_event") if warning_snapshot else None
     radar_warning_details = (dict(radar_warning_event.details)
                              if radar_warning_event is not None else {})
     risk_rule_state = {
@@ -366,28 +412,79 @@ def build_real_sensor_state(
                                if warning_snapshot else decision.valid_target_count if decision else 0),
         "invalid_target_count": (radar_warning_details.get("invalid_target_count", 0)
                                  if warning_snapshot else decision.invalid_target_count if decision else 0),
+        "imu_level": (warning_snapshot.get("imu_level")
+                      if warning_snapshot else None),
+        "imu_score": (warning_snapshot.get("imu_score")
+                      if warning_snapshot else None),
+        "imu_status": (warning_snapshot.get("imu_status")
+                       if warning_snapshot else "disabled"),
+        "imu_details": (dict(imu_warning_event.details)
+                        if imu_warning_event is not None else {}),
     }
 
     return {
         "timestamp": time.time(),
         "risk_score": display_index,
+        "raw_risk_score": (warning_snapshot["raw_risk_score"]
+                           if warning_snapshot else display_index),
+        "risk_score_state": (warning_snapshot["risk_score_state"]
+                             if warning_snapshot else "legacy"),
+        "risk_decision_monotonic_ns": (
+            warning_snapshot["risk_decision_monotonic_ns"]
+            if warning_snapshot else risk_decision_ns),
+        "risk_effective_updated_monotonic_ns": (
+            warning_snapshot["risk_effective_updated_monotonic_ns"]
+            if warning_snapshot else risk_decision_ns),
+        "risk_source_timing": (warning_snapshot["risk_source_timing"]
+                               if warning_snapshot else {}),
+        "raw_risk_source_timing": (warning_snapshot["raw_risk_source_timing"]
+                                   if warning_snapshot else {}),
+        "risk_timestamp_alignment": (
+            warning_snapshot["risk_timestamp_alignment"]
+            if warning_snapshot else "legacy"),
+        "warning_rule_config": (warning_snapshot["warning_rule_config"]
+                                if warning_snapshot else {}),
         "risk_score_semantics": ("rule_based_intervention_urgency" if warning_snapshot is not None
                                  else "adaptive_weighted_fusion" if fused_score is not None
                                  else "ordinal_display_index_not_probability"),
         "risk_level": level,
         "warning_level": level,
         "final_level": level,
+        "raw_final_level": (warning_snapshot["raw_final_level"]
+                            if warning_snapshot else level),
         "last_known_level": (warning_snapshot["last_known_level"]
                              if warning_snapshot else level),
         "risk_label": label,
         "risk_status": status,
         "risk_reason": reason,
         "warning_reason": reason,
+        "raw_warning_reason": (warning_snapshot["raw_warning_reason"]
+                               if warning_snapshot else reason),
         "system_status": status,
         "radar_level": warning_snapshot["radar_level"] if warning_snapshot else level,
         "vision_level": warning_snapshot["vision_level"] if warning_snapshot else None,
+        "imu_level": warning_snapshot["imu_level"] if warning_snapshot else None,
+        "radar_score": warning_snapshot["radar_score"] if warning_snapshot else None,
+        "vision_score": warning_snapshot["vision_score"] if warning_snapshot else None,
+        "imu_score": warning_snapshot["imu_score"] if warning_snapshot else None,
         "radar_status": warning_snapshot["radar_status"] if warning_snapshot else status,
         "vision_status": warning_snapshot["vision_status"] if warning_snapshot else "off",
+        "imu_status": warning_snapshot["imu_status"] if warning_snapshot else "off",
+        "radar_score_status": (warning_snapshot["radar_score_status"]
+                               if warning_snapshot else "legacy"),
+        "vision_score_status": (warning_snapshot["vision_score_status"]
+                                if warning_snapshot else "legacy"),
+        "imu_score_status": (warning_snapshot["imu_score_status"]
+                             if warning_snapshot else "legacy"),
+        "gps_context_status": (warning_snapshot["gps_status"]
+                               if warning_snapshot else "off"),
+        "gps_speed_factor": (warning_snapshot["gps_speed_factor"]
+                             if warning_snapshot else 1.0),
+        "vision_proximity_score": (warning_snapshot["vision_proximity_score"]
+                                   if warning_snapshot else None),
+        "vision_proximity_adjusted_score": (
+            warning_snapshot["vision_proximity_adjusted_score"]
+            if warning_snapshot else None),
         "evidence_sources": (list(warning_snapshot["evidence_sources"])
                              if warning_snapshot else (["radar"] if level else [])),
         "both_modalities_active": (warning_snapshot["both_modalities_active"]
@@ -413,7 +510,7 @@ def build_real_sensor_state(
         },
         "hardware_status": hardware_status,
         "mode": "real-recording" if recorder is not None else "real-sensors",
-        "message": ("Parallel radar/vision warning arbitration active; no modality weights"
+        "message": ("Parallel radar/vision/IMU warning arbitration active; no modality weights"
                     if warning_snapshot is not None
                     else "Legacy adaptive risk calculation active"),
         "radar_data": {
@@ -458,6 +555,24 @@ def build_real_sensor_state(
             "brake_score": round(float(imu.brake_score), 3),
             "bump_score": round(float(imu.bump_score), 3),
             "tilt_score": round(float(imu.tilt_score), 3),
+            "risk_level": (warning_snapshot.get("imu_level")
+                           if warning_snapshot else None),
+            "risk_score": (warning_snapshot.get("imu_score")
+                           if warning_snapshot else None),
+            "risk_status": (warning_snapshot.get("imu_status")
+                            if warning_snapshot else "disabled"),
+            "turn_compensation_status": (
+                imu_warning_event.details.get("turn_compensation_status")
+                if imu_warning_event is not None else "unavailable"),
+            "roll_error_deg": (
+                imu_warning_event.details.get("roll_error_deg")
+                if imu_warning_event is not None else None),
+            "outward_rate_deg_s": (
+                imu_warning_event.details.get("outward_rate_deg_s")
+                if imu_warning_event is not None else None),
+            "time_to_critical_s": (
+                imu_warning_event.details.get("time_to_critical_s")
+                if imu_warning_event is not None else None),
         },
         "fusion_data": {
             "valid": fusion is not None,
