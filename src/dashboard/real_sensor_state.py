@@ -104,6 +104,7 @@ def build_real_sensor_state(
     camera_available: bool,
     radar_reader,
     gps_reader,
+    imu_reader=None,
     frame=None,
     frame_capture_monotonic_ns: int = 0,
     camera_frame_id: int = -1,
@@ -161,6 +162,11 @@ def build_real_sensor_state(
     gps_start_ns = time.monotonic_ns()
     gps = gps_reader.read_once()
     gps_end_ns = time.monotonic_ns()
+    if imu_reader is not None:
+        imu = imu_reader.read_once()
+    else:
+        from src.fusion.data_types import IMUData
+        imu = IMUData(timestamp=time.time(), valid=False)
     gps_sample_ns = int(getattr(gps_reader, "last_sample_monotonic_ns", 0) or 0)
     camera_ns = frame_capture_monotonic_ns or radar_start_ns
     radar_delta_ms = ((radar_sample_ns - camera_ns) / 1_000_000.0 if radar_sample_ns else None)
@@ -261,6 +267,8 @@ def build_real_sensor_state(
 
     radar_connected = getattr(radar_reader, "_serial", None) is not None
     gps_connected = getattr(gps_reader, "_serial", None) is not None
+    imu_connected = (imu_reader is not None
+                     and getattr(imu_reader, "_serial", None) is not None)
     vision_valid = bool(vision is not None and vision.valid)
     radar_diagnostics = (radar_reader.get_diagnostics()
                          if hasattr(radar_reader, "get_diagnostics") else {})
@@ -289,7 +297,12 @@ def build_real_sensor_state(
         "vision": {"status": vision_state, "reason": vision_reason},
         "radar": {"status": radar_state, "reason": radar_reason, "diagnostics": radar_diagnostics},
         "gps": {"status": gps_state, "reason": gps_reason, "diagnostics": gps_diagnostics},
-        "imu": {"status": "disabled", "reason": "imu is not part of this dashboard mode"},
+        "imu": {
+            "status": "active" if imu.valid else "invalid" if imu_connected else "disabled",
+            "reason": ("imu is producing valid posture data" if imu.valid
+                       else "imu serial is open but a complete sample is not available" if imu_connected
+                       else "imu is not enabled"),
+        },
         "motor": {"status": motor_state, "reason": motor_reason},
     }
     fused_items = None
@@ -395,7 +408,7 @@ def build_real_sensor_state(
             "radar": ("real" if radar_state in {"tracking", "no_target"}
                       else "invalid" if radar_connected else "off"),
             "gps": "real" if gps_state == "active" else "invalid" if gps_connected else "off",
-            "imu": "off",
+            "imu": "real" if imu.valid else "invalid" if imu_connected else "off",
             "motor": "mock" if motor_state == "mock" else "real" if motor_state == "active" else "off",
         },
         "hardware_status": hardware_status,
@@ -429,6 +442,22 @@ def build_real_sensor_state(
             "latitude": round(float(gps.latitude), 7),
             "longitude": round(float(gps.longitude), 7),
             "fix_quality": int(gps.fix_quality),
+        },
+        "imu_data": {
+            "connected": imu_connected,
+            "valid": bool(imu.valid),
+            "roll": round(float(imu.roll), 2),
+            "pitch": round(float(imu.pitch), 2),
+            "yaw": round(float(imu.yaw), 2),
+            "acc_x": round(float(imu.acc_x), 2),
+            "acc_y": round(float(imu.acc_y), 2),
+            "acc_z": round(float(imu.acc_z), 2),
+            "gyro_x": round(float(imu.gyro_x), 2),
+            "gyro_y": round(float(imu.gyro_y), 2),
+            "gyro_z": round(float(imu.gyro_z), 2),
+            "brake_score": round(float(imu.brake_score), 3),
+            "bump_score": round(float(imu.bump_score), 3),
+            "tilt_score": round(float(imu.tilt_score), 3),
         },
         "fusion_data": {
             "valid": fusion is not None,

@@ -187,12 +187,19 @@ def build_hybrid_state(
             "vision_details": vision_details,
             # ── IMU 实时数据 ──
             "imu_data": {
+                "connected": imu_reader is not None,
                 "roll": round(float(imu.roll), 2) if imu.valid else 0.0,
                 "pitch": round(float(imu.pitch), 2) if imu.valid else 0.0,
                 "yaw": round(float(imu.yaw), 2) if imu.valid else 0.0,
                 "acc_x": round(float(imu.acc_x), 2) if imu.valid else 0.0,
                 "acc_y": round(float(imu.acc_y), 2) if imu.valid else 0.0,
                 "acc_z": round(float(imu.acc_z), 2) if imu.valid else 0.0,
+                "gyro_x": round(float(imu.gyro_x), 2) if imu.valid else 0.0,
+                "gyro_y": round(float(imu.gyro_y), 2) if imu.valid else 0.0,
+                "gyro_z": round(float(imu.gyro_z), 2) if imu.valid else 0.0,
+                "brake_score": round(float(imu.brake_score), 3) if imu.valid else 0.0,
+                "bump_score": round(float(imu.bump_score), 3) if imu.valid else 0.0,
+                "tilt_score": round(float(imu.tilt_score), 3) if imu.valid else 0.0,
                 "valid": imu.valid,
             },
         }

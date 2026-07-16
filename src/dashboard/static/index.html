@@ -536,6 +536,20 @@
     font-size: 12px; color: var(--text-primary);
     transition: color 0.3s var(--ease-apple);
   }
+  .imu-risk-pill {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 52px;
+    padding: 3px 9px;
+    border-radius: 999px;
+    font-size: 12px;
+    font-weight: 600;
+  }
+  .imu-risk-pill.low { color: #16833b; background: rgba(52,199,89,0.14); }
+  .imu-risk-pill.med { color: #ad5b00; background: rgba(255,159,10,0.16); }
+  .imu-risk-pill.high { color: #c92a22; background: rgba(255,59,48,0.14); }
+  .imu-risk-pill.invalid { color: var(--text-tertiary); background: rgba(0,0,0,0.05); }
 
   /* ── Mode Card ── */
   .mode-row { display: flex; align-items: center; gap: 10px; }
@@ -617,6 +631,12 @@
         <div id="sensor-data-container"></div>
       </div>
 
+      <!-- IMU posture data (display only; not part of the warning decision) -->
+      <div class="card" id="imu-data-card">
+        <div class="card-title">IMU 姿态</div>
+        <div id="imu-data-container"></div>
+      </div>
+
       <!-- Sensor Status -->
       <div class="card">
         <div class="card-title">传感器状态</div>
@@ -692,6 +712,26 @@
       '<span class="sensor-mode" id="sensor-data-' + k + '">--</span>';
     sensorDataContainer.appendChild(div);
     sensorDataIds[k] = "sensor-data-" + k;
+  });
+
+  const imuDataFields = ["risk", "attitude", "acceleration", "angular_velocity", "event_scores"];
+  const imuDataLabels = {
+    "risk":"姿态风险",
+    "attitude":"欧拉角 R/P/Y",
+    "acceleration":"加速度 X/Y/Z",
+    "angular_velocity":"角速度 X/Y/Z",
+    "event_scores":"急刹/颠簸/倾斜"
+  };
+  const imuDataIds = {};
+  const imuDataContainer = $("imu-data-container");
+  imuDataFields.forEach(k => {
+    const div = document.createElement("div");
+    div.className = "sensor-row";
+    div.innerHTML =
+      '<span class="sensor-label">' + imuDataLabels[k] + '</span>' +
+      '<span class="imu-val" id="imu-data-' + k + '">--</span>';
+    imuDataContainer.appendChild(div);
+    imuDataIds[k] = "imu-data-" + k;
   });
 
   const hardwareStatusLabels = {
@@ -907,6 +947,7 @@
     const items = source.risk_items && typeof source.risk_items === "object" ? source.risk_items : {};
     const radar = source.radar_data && typeof source.radar_data === "object" ? source.radar_data : {};
     const gps = source.gps_data && typeof source.gps_data === "object" ? source.gps_data : {};
+    const imu = source.imu_data && typeof source.imu_data === "object" ? source.imu_data : {};
     const vision = source.vision_details && typeof source.vision_details === "object" ? source.vision_details : {};
     const runtime = source.runtime && typeof source.runtime === "object" ? source.runtime : {};
     const hardware = source.hardware_status && typeof source.hardware_status === "object" ? source.hardware_status : {};
@@ -934,6 +975,15 @@
         longitude: longitude,
         speed_kmh: finiteNumber(gps.speed_kmh, null),
         status: typeof gps.status === "string" ? gps.status : (gps.valid ? "active" : "invalid")
+      }),
+      imu_data: Object.assign({}, imu, {
+        valid: Boolean(imu.valid),
+        roll: finiteNumber(imu.roll, 0), pitch: finiteNumber(imu.pitch, 0), yaw: finiteNumber(imu.yaw, 0),
+        acc_x: finiteNumber(imu.acc_x, 0), acc_y: finiteNumber(imu.acc_y, 0), acc_z: finiteNumber(imu.acc_z, 0),
+        gyro_x: finiteNumber(imu.gyro_x, 0), gyro_y: finiteNumber(imu.gyro_y, 0), gyro_z: finiteNumber(imu.gyro_z, 0),
+        brake_score: Math.max(0, Math.min(1, finiteNumber(imu.brake_score, 0))),
+        bump_score: Math.max(0, Math.min(1, finiteNumber(imu.bump_score, 0))),
+        tilt_score: Math.max(0, Math.min(1, finiteNumber(imu.tilt_score, 0)))
       }),
       vision_details: Object.assign({}, vision, {
         objects: Array.isArray(vision.objects) ? vision.objects : []
@@ -995,7 +1045,7 @@
 
       $("mode-text").textContent = s.mode || "mock";
 
-      const rd=s.radar_data||{}, gd=s.gps_data||{}, vd=s.vision_details||{};
+      const rd=s.radar_data||{}, gd=s.gps_data||{}, id=s.imu_data||{}, vd=s.vision_details||{};
       $(sensorDataIds.vision_objects).textContent=vd.object_count!=null?String(vd.object_count):"--";
       $(sensorDataIds.vision_confidence).textContent=typeof vd.max_confidence==="number"?(vd.max_confidence*100).toFixed(0)+"%":"--";
       $(sensorDataIds.vision_drivable).textContent=typeof vd.drivable_area_ratio==="number"?(vd.drivable_area_ratio*100).toFixed(0)+"%":"--";
@@ -1004,6 +1054,23 @@
       $(sensorDataIds.radar_ttc).textContent=rd.min_ttc_s>0?rd.min_ttc_s.toFixed(1)+" s":"--";
       $(sensorDataIds.gps_speed).textContent=typeof gd.speed_kmh==="number"?gd.speed_kmh.toFixed(1)+" km/h":"--";
       $(sensorDataIds.gps_position).textContent=gd.valid?gd.latitude.toFixed(6)+", "+gd.longitude.toFixed(6):"未定位";
+
+      const imuRiskEl=$(imuDataIds.risk);
+      if(id.valid){
+        const postureScore=Math.max(id.brake_score,id.bump_score,id.tilt_score);
+        const postureLevel=postureScore<0.3?"low":postureScore<0.7?"med":"high";
+        const postureLabel=postureLevel==="low"?"低风险":postureLevel==="med"?"中风险":"高风险";
+        imuRiskEl.textContent=postureLabel+" "+postureScore.toFixed(2);
+        imuRiskEl.className="imu-risk-pill "+postureLevel;
+        $(imuDataIds.attitude).textContent=id.roll.toFixed(1)+"° / "+id.pitch.toFixed(1)+"° / "+id.yaw.toFixed(1)+"°";
+        $(imuDataIds.acceleration).textContent=id.acc_x.toFixed(2)+" / "+id.acc_y.toFixed(2)+" / "+id.acc_z.toFixed(2)+" m/s²";
+        $(imuDataIds.angular_velocity).textContent=id.gyro_x.toFixed(1)+" / "+id.gyro_y.toFixed(1)+" / "+id.gyro_z.toFixed(1)+" °/s";
+        $(imuDataIds.event_scores).textContent=id.brake_score.toFixed(2)+" / "+id.bump_score.toFixed(2)+" / "+id.tilt_score.toFixed(2);
+      }else{
+        imuRiskEl.textContent="无有效数据";
+        imuRiskEl.className="imu-risk-pill invalid";
+        ["attitude","acceleration","angular_velocity","event_scores"].forEach(k=>{$(imuDataIds[k]).textContent="--";});
+      }
 
       if (overlayEnabled) drawOverlay(vd);
       else clearOverlay();

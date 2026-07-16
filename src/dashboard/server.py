@@ -367,6 +367,7 @@ def api_state() -> JSONResponse:
             "risk_items": {"obs": 0.0, "dist": 0.0, "pose": 0.0, "speed": 0.0},
             "weights": {"obs": 0.30, "dist": 0.35, "pose": 0.20, "speed": 0.15},
             "sensors": {"camera": "off", "vision": "off", "radar": "off", "imu": "off", "gps": "off", "motor": "off"},
+            "imu_data": {"connected": False, "valid": False},
             "hardware_status": {
                 "camera": {"status": "disabled", "reason": "state store is not injected"},
                 "vision": {"status": "disabled", "reason": "state store is not injected"},

@@ -36,9 +36,16 @@ dk2500:
     baudrate: 9600
     max_sentence_age_sec: 2.5
 
+  imu:
+    # 2026-07-16 DK2500 实测：该 USB 物理口为 WT61C，当前映射 /dev/ttyUSB1。
+    port: "/dev/serial/by-path/pci-0000:00:14.0-usb-0:6.2:1.0-port0"
+    baudrate: 115200
+    timeout: 0.1
+    max_data_age_sec: 0.5
+
   radar:
     model: "HLK-LD2451"
-    port: "/dev/ttyRadarLD2451"  # udev稳定链接，实测指向/dev/ttyUSB1
+    port: "/dev/ttyRadarLD2451"  # udev稳定链接，2026-07-16实测指向/dev/ttyUSB0
     baudrate: 256000       # 同一颗雷达迁移上板时保持；若恢复出厂则为115200
     timeout: 0.5
     # 方向/角度来自雷达前向安装标定，与连接Windows还是DK2500无关。

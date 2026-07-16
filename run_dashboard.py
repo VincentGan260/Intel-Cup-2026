@@ -287,6 +287,7 @@ def dashboard_state_loop(
                     camera_available=camera_producer.is_available,
                     radar_reader=radar_reader,
                     gps_reader=gps_reader,
+                    imu_reader=imu_reader if enable_imu else None,
                     frame=bgr_frame,
                     frame_capture_monotonic_ns=frame_capture_ns,
                     camera_frame_id=camera_frame_id,
@@ -398,7 +399,7 @@ def main() -> None:
     )
     parser.add_argument(
         "--enable-imu", action="store_true",
-        help="hybrid 模式下启用真实 IMU（WT61C 串口传感器）",
+        help="real / hybrid 模式下启用真实 IMU（WT61C 串口传感器）",
     )
     parser.add_argument(
         "--risk-config", type=str, default="configs/risk_params.yaml",
@@ -504,7 +505,23 @@ def main() -> None:
         gps_reader = GPSReader(mode="real", config=profile_cfg["gps"])
         radar_reader.start()
         gps_reader.start()
-        print(f"[RealSensors] profile={args.profile}; IMU and models disabled")
+        if args.enable_imu:
+            try:
+                from src.sensors.imu_reader import IMUReader
+
+                imu_cfg = profile_cfg.get("imu", {})
+                if not imu_cfg:
+                    raise ValueError(f"profile={args.profile} 缺少 IMU 串口配置")
+                imu_reader = IMUReader(mode="real", config=imu_cfg)
+                imu_reader.start()
+                imu_init_ok = imu_reader._serial is not None
+                if not imu_init_ok:
+                    imu_reader = None
+            except Exception as e:
+                print(f"[RealSensors] IMU initialization failed: {e}")
+                imu_reader = None
+                imu_init_ok = False
+        print(f"[RealSensors] profile={args.profile}; IMU={'enabled' if imu_init_ok else 'disabled'}")
 
         from src.fusion.risk_model import RiskModel
         from src.fusion.risk_level import RiskLevelClassifier
@@ -678,12 +695,13 @@ def main() -> None:
 
                 # 加载 IMU 串口配置
                 import yaml
-                ports_path = Path("configs/sensor_ports.yaml")
+                ports_path = _project_root / "configs" / "sensor_ports.yaml"
                 with open(ports_path, "r", encoding="utf-8") as f:
                     ports_cfg = yaml.safe_load(f)
-                # 按平台选择配置：优先 windows → dk2500
-                platform_cfg = ports_cfg.get("windows", ports_cfg.get("dk2500", {}))
+                platform_cfg = ports_cfg.get(args.profile, {})
                 imu_cfg = platform_cfg.get("imu", {})
+                if not imu_cfg:
+                    raise ValueError(f"profile={args.profile} 缺少 IMU 串口配置")
                 imu_reader = IMUReader(mode="real", config=imu_cfg)
                 imu_reader.start()
                 if imu_reader._serial is not None:
@@ -794,11 +812,11 @@ def main() -> None:
         print(f"  Vision: {'已启用' if (args.enable_vision and vision_init_ok) else '关闭'}")
     elif args.dashboard_mode == "real":
         print(f"  GPS/Radar: real ({args.profile})")
+        print(f"  IMU: {'real' if imu_init_ok else 'disabled'}")
         print(f"  Vision: {'enabled' if vision_init_ok else 'disabled'}")
         print(f"  Recording: {recorder.session_dir if recorder else 'disabled'}")
         print(f"  Competition risk rule: {'enabled' if competition_risk_rule else 'disabled'}")
         print(f"  Motor: {args.motor_mode if motor_controller else 'off'}")
-        print("  IMU: disabled")
     print("=" * 55)
 
     # Uvicorn 0.51 re-raises captured signals after its own graceful shutdown.

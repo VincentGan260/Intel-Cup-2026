@@ -87,6 +87,9 @@ class IMUReader(BaseSensorReader):
         super().__init__(mode, config)
         self._serial: Optional["serial.Serial"] = None  # noqa: F821
         self._buffer = bytearray()
+        self._component_values: dict[str, tuple[float, float, float]] = {}
+        self._component_times: dict[str, float] = {}
+        self._max_data_age_sec = float(self.config.get("max_data_age_sec", 0.5))
 
         # mock 状态
         self._mock_roll = 0.0
@@ -113,6 +116,8 @@ class IMUReader(BaseSensorReader):
             try:
                 self._serial = _serial.Serial(port, baudrate, timeout=timeout)
                 self._buffer = bytearray()
+                self._component_values.clear()
+                self._component_times.clear()
                 print(f"[IMUReader] 已打开串口 {port} @ {baudrate}")
 
                 # ── 上电自动校准：静置采集 acc_z 基准 ──
@@ -174,7 +179,8 @@ class IMUReader(BaseSensorReader):
 
     def read_once(self) -> IMUData:
         ts = now()
-        if self.is_real and self._serial is not None:
+        if self.is_real:
+            # real 模式下串口不可用必须明确返回 invalid，不得伪装成 mock 数据。
             result = self._read_real(ts)
         else:
             result = self._read_mock(ts)
@@ -211,9 +217,7 @@ class IMUReader(BaseSensorReader):
                 self._buffer = self._buffer[keep_from:]
 
             # 循环解析所有完整帧
-            has_acc = False
-            has_gyro = False
-            has_angle = False
+            received_new_packet = False
 
             while True:
                 parsed, consumed = self._parse_next_packet()
@@ -221,39 +225,53 @@ class IMUReader(BaseSensorReader):
                     break
 
                 ptype = parsed["type"]
+                packet_time = time.monotonic()
                 if ptype == "acc":
-                    imu.acc_x = parsed["acc_x"]
-                    imu.acc_y = parsed["acc_y"]
-                    imu.acc_z = parsed["acc_z"]
-                    has_acc = True
+                    self._component_values["acc"] = (
+                        parsed["acc_x"], parsed["acc_y"], parsed["acc_z"],
+                    )
                 elif ptype == "gyro":
-                    imu.gyro_x = parsed["gyro_x"]
-                    imu.gyro_y = parsed["gyro_y"]
-                    imu.gyro_z = parsed["gyro_z"]
-                    has_gyro = True
+                    self._component_values["gyro"] = (
+                        parsed["gyro_x"], parsed["gyro_y"], parsed["gyro_z"],
+                    )
                 elif ptype == "angle":
-                    imu.roll = parsed["roll"]
-                    imu.pitch = parsed["pitch"]
-                    imu.yaw = parsed["yaw"]
-                    has_angle = True
+                    self._component_values["angle"] = (
+                        parsed["roll"], parsed["pitch"], parsed["yaw"],
+                    )
+                self._component_times[ptype] = packet_time
+                received_new_packet = True
 
-            # 有任一类型数据即认为有效
-            if has_acc or has_gyro or has_angle:
+            # WT61C 的 acc/gyro/angle 是独立帧。只有三类数据均已收到且
+            # 都在时效窗口内，才输出一个完整、有效的 IMU 样本。
+            sample_time = time.monotonic()
+            required = ("acc", "gyro", "angle")
+            components_fresh = all(
+                name in self._component_values
+                and sample_time - self._component_times.get(name, float("-inf"))
+                <= self._max_data_age_sec
+                for name in required
+            )
+
+            if components_fresh:
+                imu.acc_x, imu.acc_y, imu.acc_z = self._component_values["acc"]
+                imu.gyro_x, imu.gyro_y, imu.gyro_z = self._component_values["gyro"]
+                imu.roll, imu.pitch, imu.yaw = self._component_values["angle"]
+
                 # 应用零偏校准：补偿安装倾斜 / 温漂
                 if self._calibrated:
                     imu.acc_z -= self._calib_acc_z_offset
 
-                # 原始评分（含角速度交叉验证：急刹时 nose-down pitch 角速度应同向增大）
-                raw_brake, raw_bump, raw_tilt = _compute_imu_scores(
-                    imu.roll, imu.pitch,
-                    imu.acc_x, imu.acc_y, imu.acc_z,
-                    imu.gyro_x, imu.gyro_y, imu.gyro_z,
-                )
+                # 没有新帧时只沿用最近的完整样本，不重复推进 EMA。
+                if received_new_packet:
+                    raw_brake, raw_bump, raw_tilt = _compute_imu_scores(
+                        imu.roll, imu.pitch,
+                        imu.acc_x, imu.acc_y, imu.acc_z,
+                        imu.gyro_x, imu.gyro_y, imu.gyro_z,
+                    )
 
-                # EMA 平滑防误触发：alpha=0.25 意味约 4 帧响应大部分变化，尖峰被抑制
-                self._ema_brake = EMA_ALPHA * raw_brake + (1.0 - EMA_ALPHA) * self._ema_brake
-                self._ema_bump = EMA_ALPHA * raw_bump + (1.0 - EMA_ALPHA) * self._ema_bump
-                self._ema_tilt = EMA_ALPHA * raw_tilt + (1.0 - EMA_ALPHA) * self._ema_tilt
+                    self._ema_brake = EMA_ALPHA * raw_brake + (1.0 - EMA_ALPHA) * self._ema_brake
+                    self._ema_bump = EMA_ALPHA * raw_bump + (1.0 - EMA_ALPHA) * self._ema_bump
+                    self._ema_tilt = EMA_ALPHA * raw_tilt + (1.0 - EMA_ALPHA) * self._ema_tilt
 
                 imu.valid = True
                 imu.brake_score = round(self._ema_brake, 3)
