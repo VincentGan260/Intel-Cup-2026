@@ -146,14 +146,8 @@ class RadarReader(BaseSensorReader):
 
     def start(self) -> None:
         if self.is_real:
-            import serial as _serial
-
-            port = self.config.get("port", "/dev/ttyRadarLD2451")
-            baudrate = self.config.get("baudrate", 256000)
-            timeout = self.config.get("timeout", 0.5)
-
-            try:
-                self._serial = _serial.Serial(port, baudrate, timeout=timeout)
+            self._serial_reconnect_enabled = True
+            if self._connect_serial():
                 self._buffer = bytearray()
                 self._last_valid_data = None
                 self.last_sample_monotonic_ns = 0
@@ -163,33 +157,36 @@ class RadarReader(BaseSensorReader):
                 self.last_byte_monotonic_ns = 0
                 self.last_valid_frame_monotonic_ns = 0
                 self.last_error = ""
-                print(f"[RadarReader] 已打开串口 {port} @ {baudrate}")
-            except Exception as e:
-                print(f"[RadarReader] 串口打开失败: {e}")
-                self._serial = None
-                self.last_error = str(e)
         else:
             print("[RadarReader] mock 模式启动")
 
+    def _connect_serial(self) -> bool:
+        connected = self._open_serial_with_retry(
+            port=self.config.get("port", "/dev/ttyRadarLD2451"),
+            baudrate=int(self.config.get("baudrate", 256000)),
+            timeout=float(self.config.get("timeout", 0.5)),
+            label="RadarReader",
+        )
+        if connected:
+            self._buffer.clear()
+            self._last_valid_data = None
+        return connected
+
     def stop(self) -> None:
-        if self._serial is not None:
-            try:
-                self._serial.close()
-                print("[RadarReader] 串口已关闭")
-            except Exception:
-                pass
-            self._serial = None
-        else:
-            print("[RadarReader] 已停止")
+        self._disable_serial_reconnect()
+        print("[RadarReader] 已停止")
 
     def read_once(self) -> RadarData:
         ts = now()
         if self.is_real:
+            if self._serial is None or not getattr(self._serial, "is_open", False):
+                self._connect_serial()
             if self._serial is not None:
                 result = self._read_real(ts)
                 if result.valid:
                     self._last_valid_data = result
-                elif self._serial.is_open and self._last_valid_data is not None:
+                elif (self._serial is not None and self._serial.is_open
+                      and self._last_valid_data is not None):
                     # The module reports targets about every 100 ms but an
                     # explicit no-target state only about every 1 s. Reuse the
                     # last valid frame; consumers decide staleness from
@@ -269,7 +266,7 @@ class RadarReader(BaseSensorReader):
                 radar.valid = True
 
         except Exception as e:
-            print(f"[RadarReader] 读取异常: {e}")
+            self._mark_serial_disconnected(e, label="RadarReader")
 
         return radar
 

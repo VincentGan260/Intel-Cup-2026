@@ -308,7 +308,7 @@ def build_real_sensor_state(
     fused_items = None
     fused_weights = {}
     if warning_snapshot is not None:
-        fused_score = None
+        fused_score = warning_snapshot["risk_score"]
         level = warning_snapshot["warning_level"]
         status = warning_snapshot["system_status"]
         label = ({0: "low", 1: "mid", 2: "high"}.get(level, "unknown"))
@@ -340,8 +340,7 @@ def build_real_sensor_state(
               decision.reason if decision is not None else
               ("adaptive_fusion" if fused_score is not None else "risk_rule_disabled"))
     display_index = (fused_score if fused_score is not None else
-                     ((level or 0) / 2.0
-                      if level is not None and status != "unknown" else 0.0))
+                     (level / 2.0 if level is not None and status != "unknown" else None))
 
     radar_warning_event = warning_snapshot.get("radar_event") if warning_snapshot else None
     radar_warning_details = (dict(radar_warning_event.details)
@@ -372,7 +371,8 @@ def build_real_sensor_state(
     return {
         "timestamp": time.time(),
         "risk_score": display_index,
-        "risk_score_semantics": ("adaptive_weighted_fusion" if fused_score is not None
+        "risk_score_semantics": ("rule_based_intervention_urgency" if warning_snapshot is not None
+                                 else "adaptive_weighted_fusion" if fused_score is not None
                                  else "ordinal_display_index_not_probability"),
         "risk_level": level,
         "warning_level": level,

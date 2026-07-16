@@ -107,26 +107,24 @@ class IMUReader(BaseSensorReader):
 
     def start(self) -> None:
         if self.is_real:
-            import serial as _serial
-
-            port = self.config.get("port", "/dev/ttyIMUWT61C")
-            baudrate = self.config.get("baudrate", 115200)
-            timeout = self.config.get("timeout", 0.1)
-
-            try:
-                self._serial = _serial.Serial(port, baudrate, timeout=timeout)
-                self._buffer = bytearray()
-                self._component_values.clear()
-                self._component_times.clear()
-                print(f"[IMUReader] 已打开串口 {port} @ {baudrate}")
-
-                # ── 上电自动校准：静置采集 acc_z 基准 ──
+            self._serial_reconnect_enabled = True
+            if self._connect_serial():
+                # Only calibrate during startup. Recalibrating after a reconnect
+                # could block the live pipeline while the bicycle is moving.
                 self._run_calibration()
-            except Exception as e:
-                print(f"[IMUReader] 串口打开失败: {e}")
-                self._serial = None
         else:
             print("[IMUReader] mock 模式启动")
+
+    def _connect_serial(self) -> bool:
+        connected = self._open_serial_with_retry(
+            port=self.config.get("port", "/dev/ttyIMUWT61C"),
+            baudrate=int(self.config.get("baudrate", 115200)),
+            timeout=float(self.config.get("timeout", 0.1)),
+            label="IMUReader",
+        )
+        if connected:
+            self._buffer.clear()
+        return connected
 
     def _run_calibration(self) -> None:
         """上电静置校准：采集 N 帧 acc_z，取平均偏移作为零偏补偿。
@@ -167,21 +165,17 @@ class IMUReader(BaseSensorReader):
         self._buffer.clear()
 
     def stop(self) -> None:
-        if self._serial is not None:
-            try:
-                self._serial.close()
-                print("[IMUReader] 串口已关闭")
-            except Exception:
-                pass
-            self._serial = None
-        else:
-            print("[IMUReader] 已停止")
+        self._disable_serial_reconnect()
+        print("[IMUReader] 已停止")
 
     def read_once(self) -> IMUData:
         ts = now()
         if self.is_real:
+            if self._serial is None or not getattr(self._serial, "is_open", False):
+                self._connect_serial()
             # real 模式下串口不可用必须明确返回 invalid，不得伪装成 mock 数据。
-            result = self._read_real(ts)
+            result = (self._read_real(ts) if self._serial is not None
+                      else IMUData(timestamp=ts, valid=False))
         else:
             result = self._read_mock(ts)
         self._latest = result
@@ -279,7 +273,7 @@ class IMUReader(BaseSensorReader):
                 imu.tilt_score = round(self._ema_tilt, 3)
 
         except Exception as e:
-            print(f"[IMUReader] 读取异常: {e}")
+            self._mark_serial_disconnected(e, label="IMUReader")
 
         return imu
 

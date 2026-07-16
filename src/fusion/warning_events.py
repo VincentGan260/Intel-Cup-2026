@@ -15,6 +15,7 @@ class ModalityEvent:
     usable: bool
     level: Optional[int]
     reason: str
+    risk_score: Optional[float] = None
     status: str = "usable"
     details: dict[str, Any] = field(default_factory=dict)
 
@@ -35,12 +36,15 @@ class ModalityEvent:
 @dataclass(frozen=True)
 class ArbitrationResult:
     final_level: Optional[int]
+    risk_score: Optional[float]
     system_status: str
     warning_reason: str
     evidence_sources: tuple[str, ...]
     both_modalities_active: bool
     radar_level: Optional[int]
     vision_level: Optional[int]
+    radar_score: Optional[float]
+    vision_score: Optional[float]
     radar_status: str
     vision_status: str
 

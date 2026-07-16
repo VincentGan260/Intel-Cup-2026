@@ -158,40 +158,63 @@ class GPSReader(BaseSensorReader):
 
     def start(self) -> None:
         if self.is_real:
-            import serial as _serial
+            self._serial_reconnect_enabled = True
+            if self._connect_serial():
+                self.bytes_received = 0
+                self.valid_sentence_count = 0
+                self._bad_nmea_count = 0
+                self.last_byte_monotonic_ns = 0
+                self.last_valid_sentence_monotonic_ns = 0
+                self.last_error = ""
+        else:
+            self._mock_speed = 12.0  # 初始速度 12 km/h
+            print("[GPSReader] mock 模式启动")
 
-            configured_port = str(self.config.get("port", "auto")).strip()
-            detected_ports = _find_g60_ports()
+    def _connect_serial(self) -> bool:
+        if time.monotonic() < self._serial_next_reconnect_at:
+            return False
 
-            if not detected_ports:
-                self.last_error = "未找到 G60 USB 设备 (VID:PID 1a86:55d4)"
+        configured_port = str(self.config.get("port", "auto")).strip()
+        detected_ports = _find_g60_ports()
+        if not detected_ports:
+            self.last_error = "未找到 G60 USB 设备 (VID:PID 1a86:55d4)"
+            self._serial_next_reconnect_at = (
+                time.monotonic() + self._serial_reconnect_interval_sec)
+            print(f"[GPSReader] {self.last_error}")
+            return False
+
+        if configured_port.lower() == "auto":
+            if len(detected_ports) != 1:
+                self.last_error = (
+                    "检测到多个 G60 串口: " + ", ".join(detected_ports)
+                    + "；请在配置中指定 port"
+                )
+                self._serial_next_reconnect_at = (
+                    time.monotonic() + self._serial_reconnect_interval_sec)
                 print(f"[GPSReader] {self.last_error}")
-                return
-            if configured_port.lower() == "auto":
-                if len(detected_ports) != 1:
-                    self.last_error = (
-                        "检测到多个 G60 串口: " + ", ".join(detected_ports)
-                        + "；请在配置中指定 port"
-                    )
-                    print(f"[GPSReader] {self.last_error}")
-                    return
-                port = detected_ports[0]
-            else:
-                ports_by_name = {item.lower(): item for item in detected_ports}
-                port = ports_by_name.get(configured_port.lower(), "")
-                if not port:
-                    self.last_error = (
-                        f"配置端口 {configured_port} 不是已识别的 G60；"
-                        f"当前 G60: {', '.join(detected_ports)}"
-                    )
-                    print(f"[GPSReader] {self.last_error}")
-                    return
+                return False
+            port = detected_ports[0]
+        else:
+            ports_by_name = {item.lower(): item for item in detected_ports}
+            port = ports_by_name.get(configured_port.lower(), "")
+            if not port:
+                self.last_error = (
+                    f"配置端口 {configured_port} 不是已识别的 G60；"
+                    f"当前 G60: {', '.join(detected_ports)}"
+                )
+                self._serial_next_reconnect_at = (
+                    time.monotonic() + self._serial_reconnect_interval_sec)
+                print(f"[GPSReader] {self.last_error}")
+                return False
 
-            baudrate = int(self.config.get("baudrate", 9600))
-
+        connected = self._open_serial_with_retry(
+            port=port,
+            baudrate=int(self.config.get("baudrate", 9600)),
+            timeout=0.0,
+            label="GPSReader",
+        )
+        if connected:
             try:
-                # Dashboard 不能被串口超时阻塞；完整行由 _rx_buffer 拼接。
-                self._serial = _serial.Serial(port, baudrate, timeout=0)
                 self._serial.reset_input_buffer()
                 self._active_port = port
                 self._rx_buffer.clear()
@@ -201,38 +224,24 @@ class GPSReader(BaseSensorReader):
                 self._rmc_received_mono = 0.0
                 self._gga_received_wall = 0.0
                 self._rmc_received_wall = 0.0
-                self.bytes_received = 0
-                self.valid_sentence_count = 0
-                self._bad_nmea_count = 0
-                self.last_byte_monotonic_ns = 0
-                self.last_valid_sentence_monotonic_ns = 0
-                self.last_error = ""
-                print(f"[GPSReader] 已打开串口 {port} @ {baudrate}")
-            except Exception as e:
-                print(f"[GPSReader] 串口打开失败: {e}")
-                self._serial = None
+            except Exception as exc:
+                self._mark_serial_disconnected(exc, label="GPSReader")
                 self._active_port = ""
-                self.last_error = str(e)
-        else:
-            self._mock_speed = 12.0  # 初始速度 12 km/h
-            print("[GPSReader] mock 模式启动")
+                self._rx_buffer.clear()
+                return False
+        return connected
 
     def stop(self) -> None:
-        if self._serial is not None:
-            try:
-                self._serial.close()
-                print("[GPSReader] 串口已关闭")
-            except Exception:
-                pass
-            self._serial = None
-            self._active_port = ""
-            self._rx_buffer.clear()
-        else:
-            print("[GPSReader] 已停止")
+        self._disable_serial_reconnect()
+        self._active_port = ""
+        self._rx_buffer.clear()
+        print("[GPSReader] 已停止")
 
     def read_once(self) -> GPSData:
         ts = now()
         if self.is_real:
+            if self._serial is None or not getattr(self._serial, "is_open", False):
+                self._connect_serial()
             result = self._read_real(ts)
         else:
             result = self._read_mock(ts)
@@ -348,8 +357,9 @@ class GPSReader(BaseSensorReader):
                 self.last_sample_monotonic_ns = int(self._rmc_received_mono * 1_000_000_000)
 
         except Exception as e:
-            print(f"[GPSReader] 读取异常: {e}")
-            self.last_error = str(e)
+            self._mark_serial_disconnected(e, label="GPSReader")
+            self._active_port = ""
+            self._rx_buffer.clear()
 
         return gps
 

@@ -124,20 +124,34 @@
   .cloud-data-link {
     display: inline-flex;
     align-items: center;
-    padding: 5px 13px;
-    border-radius: 980px;
+    justify-content: center;
+    width: 32px; height: 32px;
+    border-radius: 50%;
     border: 1px solid rgba(0,122,255,0.22);
     background: rgba(0,122,255,0.10);
     color: var(--blue);
-    font-size: 12px;
-    font-weight: 600;
     text-decoration: none;
     transition: all var(--dur-fast) var(--ease-apple);
+    position: relative;
+    overflow: hidden;
   }
+  .cloud-data-link::before {
+    content: "";
+    position: absolute;
+    inset: 0;
+    border-radius: 50%;
+    pointer-events: none;
+    box-shadow:
+      inset 1px 1px 0px 0px rgba(255,255,255,0.25),
+      inset -1px -1px 0px 0px rgba(255,255,255,0.15);
+  }
+  .cloud-data-link svg { position: relative; z-index: 1; pointer-events: none; }
   .cloud-data-link:hover {
     background: rgba(0,122,255,0.18);
     transform: translateY(-1px);
+    box-shadow: 0 4px 12px rgba(0,0,0,0.06);
   }
+  .cloud-data-link:active { transform: scale(0.92); }
   .header .status-pill {
     display: inline-flex;
     align-items: center;
@@ -585,7 +599,10 @@
     <a class="cloud-data-link"
        href="http://124.70.108.34/cloud-data.html"
        target="_blank"
-       rel="noopener noreferrer">云端数据</a>
+       rel="noopener noreferrer"
+       aria-label="云端数据">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 10h-1.26A8 8 0 1 0 9 20h9a5 5 0 0 0 0-10z"/></svg>
+    </a>
     <span class="status-pill" id="conn-pill">
       <span class="status-pill-dot" id="conn-dot"></span>
       <span id="conn-text">已连接</span>

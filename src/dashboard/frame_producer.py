@@ -26,6 +26,8 @@ class CameraFrameProducer:
         camera_id: int = 0,
         width: int = 640,
         height: int = 480,
+        reconnect_interval_sec: float = 2.0,
+        reconnect_after_failures: int = 15,
     ) -> None:
         self.camera_id = camera_id
         self.width = width
@@ -39,47 +41,81 @@ class CameraFrameProducer:
         self._latest_frame_id = -1
         self._capture_stop = threading.Event()
         self._capture_thread: Optional[threading.Thread] = None
+        self._reconnect_interval_sec = max(0.5, float(reconnect_interval_sec))
+        self._reconnect_after_failures = max(3, int(reconnect_after_failures))
 
-        self._open()
+        self._build_fallback_image()
+        self._try_open_capture(initial=True)
+        self._capture_thread = threading.Thread(
+            target=self._capture_loop, daemon=True, name="dashboard-camera-capture")
+        self._capture_thread.start()
 
     # ---- 内部 ----
 
-    def _open(self) -> None:
-        """尝试打开摄像头，失败则生成回退提示图。"""
+    def _build_fallback_image(self) -> None:
+        """Build the fallback JPEG once; reconnect attempts do not re-encode it."""
+        try:
+            import numpy as np
+
+            self._build_fallback(np)
+        except ImportError:
+            self._fallback_jpeg = b""
+
+    def _try_open_capture(self, *, initial: bool = False) -> bool:
+        """Open and validate a capture without spawning another worker thread."""
         try:
             import cv2
-            import numpy as np
 
             cap = cv2.VideoCapture(self.camera_id)
             if not cap.isOpened():
-                print(f"[CameraFrameProducer] 摄像头 {self.camera_id} 未能打开")
-                self._build_fallback(np)
-                return
-
-            # 验证可读取
-            ret, frame = cap.read()
-            if not ret or frame is None:
-                print(f"[CameraFrameProducer] 摄像头 {self.camera_id} 打开成功但无法读取帧")
                 cap.release()
-                self._build_fallback(np)
-                return
+                if initial:
+                    print(f"[CameraFrameProducer] 摄像头 {self.camera_id} 未能打开，将自动重试")
+                return False
 
             cap.set(cv2.CAP_PROP_FRAME_WIDTH, self.width)
             cap.set(cv2.CAP_PROP_FRAME_HEIGHT, self.height)
 
-            self._cap = cap
-            self._latest_frame = frame.copy()
-            self._latest_capture_ns = time.monotonic_ns()
-            self._latest_frame_id = 0
-            self._available = True
-            self._capture_thread = threading.Thread(
-                target=self._capture_loop, daemon=True, name="dashboard-camera-capture")
-            self._capture_thread.start()
-            print(f"[CameraFrameProducer] 摄像头 {self.camera_id} 已就绪 ({self.width}x{self.height})")
+            # 验证可读取
+            ret, frame = cap.read()
+            if not ret or frame is None:
+                cap.release()
+                if initial:
+                    print(f"[CameraFrameProducer] 摄像头 {self.camera_id} 暂时无法读取，将自动重试")
+                return False
+
+            with self._lock:
+                self._cap = cap
+                self._latest_frame = frame.copy()
+                self._latest_capture_ns = time.monotonic_ns()
+                self._latest_frame_id += 1
+                self._available = True
+            action = "已就绪" if initial else "已自动恢复"
+            print(f"[CameraFrameProducer] 摄像头 {self.camera_id} {action} ({self.width}x{self.height})")
+            return True
 
         except ImportError:
-            print("[CameraFrameProducer] opencv-python 未安装，无法打开摄像头")
+            if initial:
+                print("[CameraFrameProducer] opencv-python 未安装，无法打开摄像头")
+            return False
+        except Exception as exc:
+            if initial:
+                print(f"[CameraFrameProducer] 摄像头打开异常，将自动重试: {exc}")
+            return False
+
+    def _disconnect_capture(self) -> None:
+        """Mark the stream unavailable and release the failed handle."""
+        with self._lock:
+            cap = self._cap
+            self._cap = None
             self._available = False
+            self._latest_frame = None
+            self._latest_capture_ns = 0
+        if cap is not None:
+            try:
+                cap.release()
+            except Exception:
+                pass
 
     def _build_fallback(self, np_module) -> None:
         """生成黑底白字回退图。"""
@@ -105,21 +141,36 @@ class CameraFrameProducer:
 
     def _capture_loop(self) -> None:
         """唯一的底层摄像头消费者；页面、推理和录制只读取最新缓存。"""
+        consecutive_failures = 0
         while not self._capture_stop.is_set():
             cap = self._cap
             if cap is None:
-                break
+                if self._capture_stop.wait(self._reconnect_interval_sec):
+                    break
+                self._try_open_capture()
+                consecutive_failures = 0
+                continue
             try:
                 ret, frame = cap.read()
                 capture_ns = time.monotonic_ns()
                 if not ret or frame is None:
+                    consecutive_failures += 1
+                    if consecutive_failures >= self._reconnect_after_failures:
+                        print("[CameraFrameProducer] 摄像头连续读帧失败，开始自动恢复")
+                        self._disconnect_capture()
+                        consecutive_failures = 0
                     self._capture_stop.wait(0.02)
                     continue
+                consecutive_failures = 0
                 with self._lock:
                     self._latest_frame = frame.copy()
                     self._latest_capture_ns = capture_ns
                     self._latest_frame_id += 1
-            except Exception:
+                    self._available = True
+            except Exception as exc:
+                print(f"[CameraFrameProducer] 摄像头读取异常，开始自动恢复: {exc}")
+                self._disconnect_capture()
+                consecutive_failures = 0
                 self._capture_stop.wait(0.02)
 
     def get_jpeg_frame(self) -> bytes:
@@ -167,15 +218,7 @@ class CameraFrameProducer:
         self._capture_stop.set()
         if self._capture_thread is not None:
             self._capture_thread.join(timeout=2.0)
-        with self._lock:
-            if self._cap is not None:
-                try:
-                    self._cap.release()
-                except Exception:
-                    pass
-                self._cap = None
-            self._available = False
-            self._latest_frame = None
+        self._disconnect_capture()
         print("[CameraFrameProducer] 摄像头已释放")
 
     @property

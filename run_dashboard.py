@@ -393,6 +393,10 @@ def main() -> None:
                         help="cloud video segment duration")
     parser.add_argument("--cloud-spool", default="data/cloud_spool",
                         help="local directory for videos awaiting upload")
+    parser.add_argument("--cloud-video-queue-size", type=int, default=8,
+                        help="maximum cloud video segments held in memory")
+    parser.add_argument("--cloud-spool-max-gb", type=float, default=2.0,
+                        help="pause new cloud video recording when the spool reaches this size")
     parser.add_argument(
         "--enable-vision", action="store_true",
         help="hybrid 模式下启用视觉推理（需要 openvino 环境）",
@@ -424,6 +428,26 @@ def main() -> None:
     parser.add_argument("--radar-parsed-to-motor-go-p95-ms", "--radar-to-motor-p95-ms",
                         dest="radar_parsed_to_motor_go_p95_ms", type=float, default=0.469,
                         help="雷达帧解析完成到DRV2605 GO写入的P95，默认0.469 ms")
+    parser.add_argument("--point-gate-lateral-margin-m", type=float,
+                        choices=[0.015, 0.025, 0.035], default=0.025,
+                        help="competition point-gate lateral margin candidate")
+    parser.add_argument("--urgent-reference-s", type=float, choices=[2.0, 2.5, 3.0],
+                        default=2.5,
+                        help="reaction-time urgency reference candidate; not a stopping threshold")
+    parser.add_argument("--vision-path-policy", choices=["any", "center", "two_of_three"],
+                        default="center",
+                        help="visual path obstacle rule: any, center or two_of_three bottom points")
+    parser.add_argument("--vision-corridor-top-y-ratio", type=float, default=0.40)
+    parser.add_argument("--vision-corridor-top-width-ratio", type=float, default=0.10)
+    parser.add_argument("--vision-corridor-bottom-width-ratio", type=float, default=0.50)
+    parser.add_argument("--vision-near-bottom-ratio", type=float, default=0.61)
+    parser.add_argument("--vision-very-near-bottom-ratio", type=float, default=0.82)
+    parser.add_argument("--vision-attention-tau-s", type=float, default=4.0)
+    parser.add_argument("--vision-urgent-tau-s", type=float, default=2.5)
+    parser.add_argument("--vision-temporal-window-s", type=float, default=0.5)
+    parser.add_argument("--vision-min-history-s", type=float, default=0.2)
+    parser.add_argument("--vision-min-observations", type=int, default=3)
+    parser.add_argument("--vision-track-iou-threshold", type=float, default=0.30)
     parser.add_argument("--target-stale-ms", type=float, default=500.0,
                         help="有目标100ms周期的5倍工程容错值")
     parser.add_argument("--radar-communication-watchdog-ms", type=float, default=2000.0,
@@ -534,17 +558,18 @@ def main() -> None:
 
             competition_risk_rule = PhysicalRiskRule(
                 body_width_m=0.66,
-                point_gate_lateral_margin_m=0.025,
+                point_gate_lateral_margin_m=args.point_gate_lateral_margin_m,
                 mounting_offset_m=-0.055,
                 mounting_uncertainty_m=0.005,
                 configured_warning_range_m=args.configured_warning_range_m,
                 radar_parsed_to_motor_go_p95_s=(
                     args.radar_parsed_to_motor_go_p95_ms / 1000.0),
-                urgent_reference_s=2.5,
+                urgent_reference_s=args.urgent_reference_s,
                 max_abs_angle_deg=15.0,
             )
             print("[CompetitionRisk] radar TTC urgency rule enabled")
             print(f"[CompetitionRisk] configured_range={args.configured_warning_range_m:.2f}m, "
+                  f"point_gate_half_width={competition_risk_rule.point_gate_half_width_m:.3f}m, "
                   f"urgent_ttc={competition_risk_rule.urgent_ttc_s:.3f}s")
 
             if args.motor_mode != "off":
@@ -579,7 +604,20 @@ def main() -> None:
             if vision_init_ok:
                 synchronizer = VisionRadarFusion()
                 from src.fusion.vision_warning_rule import VisionWarningRule
-                vision_warning_rule = VisionWarningRule()
+                vision_warning_rule = VisionWarningRule(
+                    path_policy=args.vision_path_policy,
+                    corridor_top_y_ratio=args.vision_corridor_top_y_ratio,
+                    corridor_top_width_ratio=args.vision_corridor_top_width_ratio,
+                    corridor_bottom_width_ratio=args.vision_corridor_bottom_width_ratio,
+                    near_bottom_ratio=args.vision_near_bottom_ratio,
+                    very_near_bottom_ratio=args.vision_very_near_bottom_ratio,
+                    attention_tau_s=args.vision_attention_tau_s,
+                    urgent_tau_s=args.vision_urgent_tau_s,
+                    temporal_window_s=args.vision_temporal_window_s,
+                    min_history_s=args.vision_min_history_s,
+                    min_observations=args.vision_min_observations,
+                    track_iou_threshold=args.vision_track_iou_threshold,
+                )
             else:
                 vision_adapter = None
         if args.record:
@@ -730,6 +768,8 @@ def main() -> None:
             state_hz=args.cloud_state_hz,
             video_fps=args.cloud_video_fps,
             segment_seconds=args.cloud_video_seconds,
+            video_queue_size=args.cloud_video_queue_size,
+            spool_max_gb=args.cloud_spool_max_gb,
         )
         cloud_sync.start()
 

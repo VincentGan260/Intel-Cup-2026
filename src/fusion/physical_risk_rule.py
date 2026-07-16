@@ -11,10 +11,12 @@ from src.fusion.warning_events import ModalityEvent
 @dataclass(frozen=True)
 class PhysicalRiskDecision:
     level: int
+    risk_score: Optional[float]
     label: str
     status: str
     reason: str
     min_path_ttc_s: Optional[float]
+    attention_ttc_s: float
     urgent_ttc_s: float
     path_target_count: int
     point_gate_half_width_m: float
@@ -40,6 +42,9 @@ class PhysicalRiskRule:
     a stopping-safety threshold and contains no braking-time model.
     """
 
+    ATTENTION_SCORE = 0.35
+    HIGH_SCORE = 0.70
+
     def __init__(
         self,
         *,
@@ -50,13 +55,15 @@ class PhysicalRiskRule:
         configured_warning_range_m: float,
         radar_to_motor_p95_s: float | None = None,
         radar_parsed_to_motor_go_p95_s: float | None = None,
+        attention_reference_s: float = 4.0,
         urgent_reference_s: float = 2.5,
         min_valid_distance_m: float = 0.01,
         max_valid_distance_m: float = 100.0,
         max_abs_angle_deg: float = 15.0,
         min_confidence: float | None = None,
     ) -> None:
-        positive = (body_width_m, configured_warning_range_m, urgent_reference_s)
+        positive = (body_width_m, configured_warning_range_m,
+                    attention_reference_s, urgent_reference_s)
         parsed_latency = (radar_parsed_to_motor_go_p95_s
                           if radar_parsed_to_motor_go_p95_s is not None
                           else radar_to_motor_p95_s)
@@ -65,7 +72,9 @@ class PhysicalRiskRule:
         nonnegative = (point_gate_lateral_margin_m, mounting_uncertainty_m,
                        parsed_latency, min_valid_distance_m)
         if any(value <= 0 for value in positive):
-            raise ValueError("body width, configured range and urgency reference must be positive")
+            raise ValueError("body width, configured range and TTC references must be positive")
+        if attention_reference_s <= urgent_reference_s:
+            raise ValueError("attention reference must be greater than urgency reference")
         if any(value < 0 for value in nonnegative):
             raise ValueError("margins, noise, latency and minimum distance must be non-negative")
         if max_valid_distance_m < configured_warning_range_m:
@@ -79,6 +88,7 @@ class PhysicalRiskRule:
         self.mounting_uncertainty_m = mounting_uncertainty_m
         self.configured_warning_range_m = configured_warning_range_m
         self.radar_parsed_to_motor_go_p95_s = parsed_latency
+        self.attention_reference_s = attention_reference_s
         self.urgent_reference_s = urgent_reference_s
         self.min_valid_distance_m = min_valid_distance_m
         self.max_valid_distance_m = max_valid_distance_m
@@ -88,6 +98,10 @@ class PhysicalRiskRule:
     @property
     def urgent_ttc_s(self) -> float:
         return self.urgent_reference_s + self.radar_parsed_to_motor_go_p95_s
+
+    @property
+    def attention_ttc_s(self) -> float:
+        return self.attention_reference_s + self.radar_parsed_to_motor_go_p95_s
 
     @property
     def radar_to_motor_p95_s(self) -> float:
@@ -103,14 +117,32 @@ class PhysicalRiskRule:
     def corridor_half_width_m(self) -> float:
         return self.point_gate_half_width_m
 
+    def _candidate_risk_score(self, ttc_s: float, distance_m: float) -> float:
+        """Map one path candidate to the shared intervention-urgency scale."""
+        if ttc_s <= self.urgent_ttc_s:
+            urgency = 1.0 - ttc_s / self.urgent_ttc_s
+            return min(1.0, self.HIGH_SCORE + (1.0 - self.HIGH_SCORE) * urgency)
+
+        if ttc_s <= self.attention_ttc_s:
+            span = self.attention_ttc_s - self.urgent_ttc_s
+            progress = (self.attention_ttc_s - ttc_s) / span
+            return self.ATTENTION_SCORE + (self.HIGH_SCORE - self.ATTENTION_SCORE) * progress
+
+        return self.ATTENTION_SCORE * self.attention_ttc_s / ttc_s
+
     def _make(self, level: int, label: str, status: str, reason: str, *,
               raw: int = 0, valid: int = 0, invalid: int = 0,
               candidates: list[tuple[float, float, float]] | None = None) -> PhysicalRiskDecision:
         candidates = candidates or []
         critical = min(candidates, key=lambda item: item[0]) if candidates else None
+        usable = status not in {"unknown", "degraded"}
+        risk_score = (max(self._candidate_risk_score(ttc, distance)
+                          for ttc, distance, _lateral in candidates)
+                      if candidates else 0.0 if usable else None)
         return PhysicalRiskDecision(
-            level=level, label=label, status=status, reason=reason,
+            level=level, risk_score=risk_score, label=label, status=status, reason=reason,
             min_path_ttc_s=critical[0] if critical else None,
+            attention_ttc_s=self.attention_ttc_s,
             urgent_ttc_s=self.urgent_ttc_s,
             path_target_count=len(candidates),
             point_gate_half_width_m=self.point_gate_half_width_m,
@@ -188,8 +220,14 @@ class PhysicalRiskRule:
                 raw=len(targets), valid=valid_count, invalid=invalid_count,
                 candidates=candidates,
             )
+        if min(item[0] for item in candidates) <= self.attention_ttc_s:
+            return self._make(
+                1, "mid", "warning", "ttc_entered_attention_reference",
+                raw=len(targets), valid=valid_count, invalid=invalid_count,
+                candidates=candidates,
+            )
         return self._make(
-            1, "mid", "warning", "approaching_target_in_configured_point_gate",
+            0, "low", "normal", "approaching_target_beyond_attention_reference",
             raw=len(targets), valid=valid_count, invalid=invalid_count,
             candidates=candidates,
         )
@@ -206,9 +244,12 @@ class PhysicalRiskRule:
             capture_monotonic_ns=packet_monotonic_ns,
             completed_monotonic_ns=completed_ns,
             usable=usable, level=level, reason=decision.reason,
+            risk_score=decision.risk_score if usable else None,
             status=("usable" if usable else decision.status),
             details={
+                "risk_score_semantics": "intervention_urgency_not_probability",
                 "critical_ttc_s": decision.min_path_ttc_s,
+                "attention_ttc_s": decision.attention_ttc_s,
                 "urgent_ttc_s": decision.urgent_ttc_s,
                 "critical_distance_m": decision.critical_distance_m,
                 "critical_lateral_m": decision.critical_lateral_m,
