@@ -1,4 +1,4 @@
-"""Read-only NEO-M8N UART tester and raw NMEA recorder.
+"""Read-only WHEELTEC G60 USB tester and raw NMEA recorder.
 
 It sends no UBX/NMEA configuration commands. Every received line is saved
 with host wall/monotonic timestamps, checksum status and parsed GGA/RMC data.
@@ -14,6 +14,24 @@ from pathlib import Path
 from typing import Any
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(PROJECT_ROOT))
+
+from src.sensors.gps_reader import _find_g60_ports
+
+
+def resolve_g60_port(configured: str) -> str:
+    """解析并验证 G60 串口。"""
+    ports = _find_g60_ports()
+    if not ports:
+        raise RuntimeError("未找到 G60 USB 设备 (VID:PID 1a86:55d4)")
+    if configured.lower() == "auto":
+        if len(ports) != 1:
+            raise RuntimeError(f"检测到多个 G60，请用 --port 指定: {ports}")
+        return ports[0]
+    matches = {port.lower(): port for port in ports}
+    if configured.lower() not in matches:
+        raise RuntimeError(f"{configured} 不是已识别的 G60；当前设备: {ports}")
+    return matches[configured.lower()]
 
 
 def nmea_checksum(line: str) -> tuple[bool, int | None, int | None]:
@@ -115,14 +133,19 @@ def scan_bauds(port: str) -> int:
 
 
 def main() -> int:
-    ap = argparse.ArgumentParser(description="Read-only NEO-M8N NMEA tester/recorder")
-    ap.add_argument("--port", default="/dev/ttyUSB0")
+    ap = argparse.ArgumentParser(description="Read-only WHEELTEC G60 NMEA tester/recorder")
+    ap.add_argument("--port", default="auto", help="G60串口，默认按USB VID/PID自动识别")
     ap.add_argument("--baud", type=int, default=9600)
     ap.add_argument("--duration", type=float, default=30.0)
-    ap.add_argument("--out", type=Path, default=Path("logs/neo_m8n_test.jsonl"))
+    ap.add_argument("--out", type=Path, default=Path("logs/g60_test.jsonl"))
     ap.add_argument("--scan-baud", action="store_true")
     ap.add_argument("--print-all", action="store_true", help="also print non-GGA/RMC sentences")
     args = ap.parse_args()
+    try:
+        args.port = resolve_g60_port(args.port)
+    except RuntimeError as exc:
+        print(f"[ERROR] {exc}", file=sys.stderr)
+        return 2
     if args.scan_baud:
         return scan_bauds(args.port)
 
@@ -138,7 +161,7 @@ def main() -> int:
     try:
         with serial.Serial(args.port, args.baud, timeout=0.5) as ser, output.open("w", encoding="utf-8", buffering=1) as f:
             ser.reset_input_buffer()
-            print(f"NEO-M8N read-only test: {args.port} @ {args.baud} 8N1 -> {output}")
+            print(f"WHEELTEC G60 read-only test: {args.port} @ {args.baud} 8N1 -> {output}")
             print("Place antenna outdoors with a clear sky view. Ctrl+C to stop.")
             deadline = time.monotonic() + args.duration if args.duration > 0 else None
             while deadline is None or time.monotonic() < deadline:

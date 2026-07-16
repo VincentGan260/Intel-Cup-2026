@@ -6,9 +6,9 @@
 
 windows:
   gps:
-    port: "COM5"
+    model: "WHEELTEC G60"
+    port: "auto"               # 按 USB VID:PID 1a86:55d4 自动识别
     baudrate: 9600
-    timeout: 1.0
     max_sentence_age_sec: 2.5
 
   imu:
@@ -31,9 +31,9 @@ windows:
 
 dk2500:
   gps:
-    port: "/dev/ttyS5"           # 当前上车接线使用主板UART；GPS失效时仍作为可选模态记录valid=false
+    model: "WHEELTEC G60"
+    port: "auto"               # USB Type-C，Linux 通常映射为 /dev/ttyACM*
     baudrate: 9600
-    timeout: 1.0
     max_sentence_age_sec: 2.5
 
   radar:

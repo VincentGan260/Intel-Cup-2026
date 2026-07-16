@@ -68,7 +68,7 @@ def build_segmentation_result_from_label_map(label_small: np.ndarray, wh: Tuple[
 class RoadAdasSegmenter:
     """FP16 road-adas 语义分割模型"""
 
-    def __init__(self, xml_path: Path, device: str):
+    def __init__(self, xml_path: Path, device: str, compile_config: Dict[str, Any] | None = None):
         self.xml_path = xml_path
         self.device = device
         self.input_height = 1024
@@ -77,7 +77,7 @@ class RoadAdasSegmenter:
 
         core = ov.Core()
         model = core.read_model(str(xml_path))
-        self.compiled = core.compile_model(model, device)
+        self.compiled = core.compile_model(model, device, compile_config or {})
         self.input_name = self.compiled.input(0).get_any_name()
         self.infer_request = self.compiled.create_infer_request()
 
@@ -122,7 +122,7 @@ class RoadAdasSegmenter:
 class YOLO26nInt8Detector:
     """INT8 YOLO26n v2 目标检测模型"""
 
-    def __init__(self, xml_path: Path, device: str):
+    def __init__(self, xml_path: Path, device: str, compile_config: Dict[str, Any] | None = None):
         self.xml_path = xml_path
         self.device = device
         self.image_size = 640
@@ -130,7 +130,7 @@ class YOLO26nInt8Detector:
 
         core = ov.Core()
         model = core.read_model(str(xml_path))
-        self.compiled = core.compile_model(model, device)
+        self.compiled = core.compile_model(model, device, compile_config or {})
         self.input_name = self.compiled.input(0).get_any_name()
         self.infer_request = self.compiled.create_infer_request()
 

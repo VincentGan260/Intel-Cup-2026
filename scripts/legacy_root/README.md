@@ -7,5 +7,5 @@ Current maintained entry points:
 
 - `start_collection.py` at the repository root for data collection.
 - `start_demo.py` at the repository root for final demo mode.
-- `scripts/test_neo_m8n_gps.py` for NEO-M8N GPS testing.
+- `scripts/test_g60_gps.py` for WHEELTEC G60 GPS testing.
 - `scripts/monitor_radar.py` and `scripts/record_radar.py` for LD2451 radar checks.

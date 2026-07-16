@@ -335,6 +335,8 @@ def main():
     port_infos["gps"] = {"port": gps_ports.get("port", "N/A"), "baud": str(gps_ports.get("baudrate", 9600))}
     ok, st = _try_start(gps_reader, "GPS", f"port={gps_ports.get('port', 'N/A')}")
     statuses["GPS"] = st
+    if ok:
+        port_infos["gps"]["port"] = gps_reader.get_diagnostics().get("port", "N/A")
 
     # IMU
     imu_ports = ports.get("imu", {})
