@@ -28,6 +28,10 @@ def _runtime_python() -> Path | None:
     for parent in executable.parents:
         candidates.append(parent / "envs/intel/bin/python")
     candidates.append(Path.home() / "miniconda3/envs/intel/bin/python")
+    candidates.extend([
+        PROJECT_ROOT / ".venv/Scripts/python.exe",
+        PROJECT_ROOT / ".venv/bin/python",
+    ])
     for candidate in candidates:
         if candidate.is_file() and os.access(candidate, os.X_OK):
             return candidate.resolve()

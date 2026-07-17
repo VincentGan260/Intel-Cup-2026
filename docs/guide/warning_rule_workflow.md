@@ -59,7 +59,9 @@ Windows 普通笔记本统一使用项目虚拟环境：
 
 - `schema_version`：配置结构版本，不是规则效果版本。
 - `version`：本次规则版本，修改候选参数时必须同步修改。
-- `calibration_status`：标定状态。当前为 `provisional_pending_vehicle_test`，表示等待实车验证。
+- `calibration_status`：标定状态。当前为
+  `estimated_from_stationary_risk_pending_measurement`，表示IMU零偏包含反推临时值，
+  必须在最终安装状态下重新静止测量。
 
 `configured_warning_range_m` 当前为 `100.0`，对应项目既有硬件记录中的
 LD2451 V1.03 默认/协议最大探测距离。该值只过滤雷达已经上报的目标，不会扩大
