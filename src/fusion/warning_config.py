@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import hashlib
+import math
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -91,6 +92,13 @@ def load_warning_rule_config(path: str | Path) -> WarningRuleConfig:
         raise ValueError("GPS maximum factor must be at least one")
 
     imu = data["imu"]
+    for name in ("roll_offset_deg", "pitch_offset_deg"):
+        try:
+            value = float(imu[name])
+        except (KeyError, TypeError, ValueError) as exc:
+            raise ValueError(f"warning config {name} must be numeric") from exc
+        if not math.isfinite(value):
+            raise ValueError(f"warning config {name} must be finite")
     _positive(imu, (
         "gravity_mps2", "min_turn_compensation_speed_kmh",
         "attention_error_deg", "critical_error_deg",
@@ -116,7 +124,20 @@ def load_warning_rule_config(path: str | Path) -> WarningRuleConfig:
     _positive(freshness, ("target_stale_ms", "vision_stale_ms", "gps_stale_ms",
                           "imu_stale_ms",
                           "radar_communication_watchdog_ms"))
-    _positive(data["state"], ("release_hold_ms",))
+    state = data["state"]
+    _positive(state, ("release_hold_ms",))
+    variation = state.get("score_variation")
+    if not isinstance(variation, dict):
+        raise ValueError("warning config state.score_variation must be a mapping")
+    if not isinstance(variation.get("enabled"), bool):
+        raise ValueError("score variation enabled must be boolean")
+    amplitude = float(variation.get("max_amplitude"))
+    if not 0.0 <= amplitude < 0.175:
+        raise ValueError("score variation amplitude must be within [0, 0.175)")
+    if float(variation.get("time_constant_s")) <= 0.0:
+        raise ValueError("score variation time constant must be positive")
+    seed = variation.get("seed")
+    if seed is not None and (isinstance(seed, bool) or not isinstance(seed, int)):
+        raise ValueError("score variation seed must be an integer or null")
     return WarningRuleConfig(
         path=resolved, data=data, sha256=hashlib.sha256(raw).hexdigest())
-

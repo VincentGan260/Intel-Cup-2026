@@ -532,7 +532,8 @@ def main() -> None:
                       "imu_stale_ms": float(freshness_defaults["imu_stale_ms"]),
                       "radar_communication_watchdog_ms":
                           args.radar_communication_watchdog_ms},
-        "state": {"release_hold_ms": args.release_hold_ms},
+        "state": {"release_hold_ms": args.release_hold_ms,
+                  "score_variation": state_defaults["score_variation"]},
     }
     warning_rule_metadata = {
         **warning_config.metadata,
@@ -576,10 +577,21 @@ def main() -> None:
     camera = CameraFrameProducer(camera_id=args.camera_id)
 
     # ── 2. 创建状态池 ──
+    from src.dashboard.risk_score_variation import (
+        RiskScoreVariation,
+        RiskScoreVariationConfig,
+    )
     from src.dashboard.state_store import DashboardStateStore
     from src.dashboard.vision_snapshot import VisionSnapshotStore
 
-    state_store = DashboardStateStore()
+    score_variation_defaults = state_defaults["score_variation"]
+    score_variation = RiskScoreVariation(RiskScoreVariationConfig(
+        enabled=bool(score_variation_defaults["enabled"]),
+        max_amplitude=float(score_variation_defaults["max_amplitude"]),
+        time_constant_s=float(score_variation_defaults["time_constant_s"]),
+        seed=score_variation_defaults.get("seed"),
+    ))
+    state_store = DashboardStateStore(score_variation=score_variation)
     vision_snapshot_store = VisionSnapshotStore()
 
     # 写入一次初始状态
@@ -621,9 +633,14 @@ def main() -> None:
             try:
                 from src.sensors.imu_reader import IMUReader
 
-                imu_cfg = profile_cfg.get("imu", {})
-                if not imu_cfg:
+                profile_imu_cfg = profile_cfg.get("imu", {})
+                if not profile_imu_cfg:
                     raise ValueError(f"profile={args.profile} 缺少 IMU 串口配置")
+                imu_cfg = {
+                    **profile_imu_cfg,
+                    "roll_offset_deg": float(imu_defaults["roll_offset_deg"]),
+                    "pitch_offset_deg": float(imu_defaults["pitch_offset_deg"]),
+                }
                 imu_reader = IMUReader(mode="real", config=imu_cfg)
                 imu_reader.start()
                 imu_init_ok = imu_reader._serial is not None
@@ -684,6 +701,7 @@ def main() -> None:
                 imu_warning_rule = ImuWarningRule(ImuWarningRuleConfig(
                     calibration_status=str(imu_defaults["calibration_status"]),
                     roll_offset_deg=float(imu_defaults["roll_offset_deg"]),
+                    pitch_offset_deg=float(imu_defaults["pitch_offset_deg"]),
                     turn_sign=float(imu_defaults["turn_sign"]),
                     gravity_mps2=float(imu_defaults["gravity_mps2"]),
                     min_turn_compensation_speed_kmh=float(
@@ -863,9 +881,14 @@ def main() -> None:
                 with open(ports_path, "r", encoding="utf-8") as f:
                     ports_cfg = yaml.safe_load(f)
                 platform_cfg = ports_cfg.get(args.profile, {})
-                imu_cfg = platform_cfg.get("imu", {})
-                if not imu_cfg:
+                profile_imu_cfg = platform_cfg.get("imu", {})
+                if not profile_imu_cfg:
                     raise ValueError(f"profile={args.profile} 缺少 IMU 串口配置")
+                imu_cfg = {
+                    **profile_imu_cfg,
+                    "roll_offset_deg": float(imu_defaults["roll_offset_deg"]),
+                    "pitch_offset_deg": float(imu_defaults["pitch_offset_deg"]),
+                }
                 imu_reader = IMUReader(mode="real", config=imu_cfg)
                 imu_reader.start()
                 if imu_reader._serial is not None:

@@ -188,8 +188,14 @@ def build_hybrid_state(
             # ── IMU 实时数据 ──
             "imu_data": {
                 "connected": imu_reader is not None,
-                "roll": round(float(imu.roll), 2) if imu.valid else 0.0,
-                "pitch": round(float(imu.pitch), 2) if imu.valid else 0.0,
+                "roll": round(float(
+                    imu.body_roll if imu.body_roll is not None else imu.roll
+                ), 2) if imu.valid else 0.0,
+                "pitch": round(float(
+                    imu.body_pitch if imu.body_pitch is not None else imu.pitch
+                ), 2) if imu.valid else 0.0,
+                "raw_roll": round(float(imu.roll), 2) if imu.valid else 0.0,
+                "raw_pitch": round(float(imu.pitch), 2) if imu.valid else 0.0,
                 "yaw": round(float(imu.yaw), 2) if imu.valid else 0.0,
                 "acc_x": round(float(imu.acc_x), 2) if imu.valid else 0.0,
                 "acc_y": round(float(imu.acc_y), 2) if imu.valid else 0.0,

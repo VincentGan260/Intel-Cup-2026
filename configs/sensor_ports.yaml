@@ -42,6 +42,10 @@ dk2500:
     baudrate: 115200
     timeout: 0.1
     max_data_age_sec: 0.5
+    # 回退镜像值；正式风险规则以 warning_rules.yaml 为版本化权威来源。
+    # 2026-07-17 根据平放 imu_score≈0.25 估算，等待静止原始角实测替换。
+    roll_offset_deg: -12.44
+    pitch_offset_deg: -1.493
 
   radar:
     model: "HLK-LD2451"

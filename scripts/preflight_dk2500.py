@@ -157,8 +157,12 @@ def check_imu(ports: dict, loops: int) -> dict:
             if data.valid:
                 result["valid_count"] += 1
                 result["last_valid"] = {
-                    "roll": round(data.roll, 2),
-                    "pitch": round(data.pitch, 2),
+                    "roll": round(
+                        data.body_roll if data.body_roll is not None else data.roll, 2),
+                    "pitch": round(
+                        data.body_pitch if data.body_pitch is not None else data.pitch, 2),
+                    "raw_roll": round(data.roll, 2),
+                    "raw_pitch": round(data.pitch, 2),
                     "yaw": round(data.yaw, 2),
                 }
                 sys.stdout.write("valid\n")

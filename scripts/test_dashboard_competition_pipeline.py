@@ -122,6 +122,10 @@ def main() -> None:
         radar_communication_watchdog_ms=2000.0,
     )
     assert stale["risk_status"] == "unknown"
+    assert stale["radar_status"] == "waiting"
+    assert stale["radar_safety_status"] == "unknown"
+    assert stale["hardware_status"]["radar"]["status"] == "waiting"
+    assert stale["sensors"]["radar"] == "real"
     assert stale_motor.calls == []
 
     no_target = RadarData(valid=True, targets=[])

@@ -10,8 +10,9 @@ from src.fusion.warning_events import ModalityEvent
 
 @dataclass(frozen=True)
 class ImuWarningRuleConfig:
-    calibration_status: str = "provisional_pending_vehicle_test"
-    roll_offset_deg: float = -5.296
+    calibration_status: str = "estimated_from_stationary_risk_pending_measurement"
+    roll_offset_deg: float = -12.44
+    pitch_offset_deg: float = -1.493
     turn_sign: float = -1.0
     gravity_mps2: float = 9.80665
     min_turn_compensation_speed_kmh: float = 3.0
@@ -119,7 +120,9 @@ class ImuWarningRule:
             equilibrium_rate_deg_s = (
                 equilibrium_roll_deg - self._previous_equilibrium_roll_deg) / dt_s
 
-        body_roll_deg = roll_deg - self.config.roll_offset_deg
+        calibrated_roll = self._finite_float(getattr(imu, "body_roll", None))
+        body_roll_deg = (calibrated_roll if calibrated_roll is not None
+                         else roll_deg - self.config.roll_offset_deg)
         roll_error_deg = body_roll_deg - equilibrium_roll_deg
         abs_error_deg = abs(roll_error_deg)
         error_sign = 1 if roll_error_deg > 0.0 else -1 if roll_error_deg < 0.0 else 0
@@ -194,6 +197,7 @@ class ImuWarningRule:
                 "calibration_status": self.config.calibration_status,
                 "roll_raw_deg": roll_deg,
                 "roll_offset_deg": self.config.roll_offset_deg,
+                "pitch_offset_deg": self.config.pitch_offset_deg,
                 "body_roll_deg": body_roll_deg,
                 "gyro_x_deg_s": gyro_x_deg_s,
                 "gyro_z_deg_s": gyro_z_deg_s,

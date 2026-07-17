@@ -23,6 +23,7 @@ def _radar_diagnostic_state(
     connected: bool,
     raw_valid: bool,
     fresh: bool,
+    communication_alive: bool,
     target_count: int,
     diagnostics: dict,
     age_ms: float | None,
@@ -36,6 +37,8 @@ def _radar_diagnostic_state(
             return "no_valid_frame", "bytes arrived but no complete valid radar frame was decoded"
         return "read_invalid", "latest radar read did not produce a valid frame"
     if not fresh:
+        if communication_alive:
+            return "waiting", "radar communication is alive; awaiting the next target or no-target report"
         return "stale", f"last valid radar frame is stale ({age_ms:.0f} ms)" if age_ms is not None else "no radar sample timestamp"
     if target_count <= 0:
         return "no_target", "radar is healthy and currently reports no target"
@@ -92,7 +95,9 @@ def _motor_diagnostic_state(motor) -> tuple[str, str]:
         return "disabled", "motor controller is not configured"
     mode = str(getattr(motor, "mode", "unknown"))
     if mode == "mock":
-        return "mock", "motor controller is running in mock mode"
+        error = str(getattr(motor, "last_error", "") or "")
+        return "mock", (f"real motor initialization failed: {error}"
+                        if error else "motor controller is running in mock mode")
     if mode == "real" and getattr(motor, "_bus", None) is not None:
         return "active", "motor controller is connected to the haptic driver"
     if mode == "real":
@@ -319,10 +324,14 @@ def build_real_sensor_state(
                          if hasattr(radar_reader, "get_diagnostics") else {})
     gps_diagnostics = (gps_reader.get_diagnostics()
                        if hasattr(gps_reader, "get_diagnostics") else {})
+    imu_diagnostics = (
+        imu_reader.get_diagnostics()
+        if imu_reader is not None and hasattr(imu_reader, "get_diagnostics") else {})
     radar_state, radar_reason = _radar_diagnostic_state(
         connected=radar_connected,
         raw_valid=bool(radar.valid),
         fresh=radar_fresh,
+        communication_alive=radar_communication_alive,
         target_count=len(targets),
         diagnostics=radar_diagnostics,
         age_ms=radar_age_ms,
@@ -347,9 +356,24 @@ def build_real_sensor_state(
             "reason": ("imu is producing valid posture data" if imu.valid
                        else "imu serial is open but a complete sample is not available" if imu_connected
                        else "imu is not enabled"),
+            "diagnostics": imu_diagnostics,
         },
         "motor": {"status": motor_state, "reason": motor_reason},
     }
+    required_ready = bool(
+        camera_state == "active"
+        and vision_state == "active"
+        and radar_state in {"tracking", "no_target"}
+        and imu.valid
+        and warning_snapshot is not None
+        and motor_state == "active"
+    )
+    if not required_ready:
+        startup_readiness = "not_ready"
+    elif gps_state == "active":
+        startup_readiness = "ready"
+    else:
+        startup_readiness = "degraded"
     fused_items = None
     fused_weights = {}
     if warning_snapshot is not None:
@@ -467,7 +491,9 @@ def build_real_sensor_state(
         "radar_score": warning_snapshot["radar_score"] if warning_snapshot else None,
         "vision_score": warning_snapshot["vision_score"] if warning_snapshot else None,
         "imu_score": warning_snapshot["imu_score"] if warning_snapshot else None,
-        "radar_status": warning_snapshot["radar_status"] if warning_snapshot else status,
+        "radar_status": radar_state,
+        "radar_safety_status": (warning_snapshot["radar_status"]
+                                if warning_snapshot else status),
         "vision_status": warning_snapshot["vision_status"] if warning_snapshot else "off",
         "imu_status": warning_snapshot["imu_status"] if warning_snapshot else "off",
         "radar_score_status": (warning_snapshot["radar_score_status"]
@@ -502,13 +528,14 @@ def build_real_sensor_state(
             "vision": ("real" if vision_state == "active"
                        else "invalid" if vision_state in {"waiting", "invalid"}
                        else "off"),
-            "radar": ("real" if radar_state in {"tracking", "no_target"}
+            "radar": ("real" if radar_state in {"tracking", "no_target", "waiting"}
                       else "invalid" if radar_connected else "off"),
             "gps": "real" if gps_state == "active" else "invalid" if gps_connected else "off",
             "imu": "real" if imu.valid else "invalid" if imu_connected else "off",
             "motor": "mock" if motor_state == "mock" else "real" if motor_state == "active" else "off",
         },
         "hardware_status": hardware_status,
+        "startup_readiness": startup_readiness,
         "mode": "real-recording" if recorder is not None else "real-sensors",
         "message": ("Parallel radar/vision/IMU warning arbitration active; no modality weights"
                     if warning_snapshot is not None
@@ -543,8 +570,12 @@ def build_real_sensor_state(
         "imu_data": {
             "connected": imu_connected,
             "valid": bool(imu.valid),
-            "roll": round(float(imu.roll), 2),
-            "pitch": round(float(imu.pitch), 2),
+            "roll": round(float(
+                imu.body_roll if imu.body_roll is not None else imu.roll), 2),
+            "pitch": round(float(
+                imu.body_pitch if imu.body_pitch is not None else imu.pitch), 2),
+            "raw_roll": round(float(imu.roll), 2),
+            "raw_pitch": round(float(imu.pitch), 2),
             "yaw": round(float(imu.yaw), 2),
             "acc_x": round(float(imu.acc_x), 2),
             "acc_y": round(float(imu.acc_y), 2),
@@ -596,6 +627,7 @@ def build_real_sensor_state(
             "vehicle_count": vision.vehicle_count if vision else 0,
             "max_confidence": float(vision.max_confidence) if vision else 0.0,
             "drivable_area_ratio": float(vision.drivable_area_ratio) if vision else 0.0,
+            "max_visual_risk": float(vision.max_visual_risk) if vision else 0.0,
             "objects": objects,
             "frame_size": {"width": frame.shape[1] if frame is not None else 640,
                            "height": frame.shape[0] if frame is not None else 480},

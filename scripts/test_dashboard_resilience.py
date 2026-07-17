@@ -74,6 +74,8 @@ def test_bounded_cloud_queue() -> None:
     try:
         for index in range(4):
             (spool / f"bike-001_20260715T00000{index}000000Z.mp4").write_bytes(b"x")
+        partial = spool / "bike-001_20260715T000009000000Z.partial.mp4"
+        partial.write_bytes(b"still recording")
         client = CloudSyncClient(
             base_url="http://127.0.0.1",
             device_id="bike-001",
@@ -83,11 +85,43 @@ def test_bounded_cloud_queue() -> None:
         )
         client._fill_video_queue()
         assert client._video_queue.qsize() == 2
+        assert partial.resolve() not in client._queued_video_paths
         client.spool_max_bytes = 2
         assert client._spool_has_capacity() is False
-        assert len(list(spool.glob("*.mp4"))) == 4
+        assert len([
+            path for path in spool.glob("*.mp4")
+            if not path.name.endswith(".partial.mp4")
+        ]) == 4
+        try:
+            client._probe_duration(spool / "bike-001_20260715T000000000000Z.mp4")
+        except ValueError as exc:
+            assert "too small" in str(exc)
+        else:
+            raise AssertionError("truncated MP4 must be rejected")
     finally:
         shutil.rmtree(spool, ignore_errors=True)
+
+
+def test_cloud_player_keeps_selection() -> None:
+    index = (ROOT / "deploy" / "cloud" / "index.html").read_text(encoding="utf-8")
+    cloud_data = (ROOT / "deploy" / "cloud" / "cloud-data.html").read_text(encoding="utf-8")
+    assert index == cloud_data
+    assert "selectedVideoId" in index
+    assert "Number(x.file_size_bytes)>=1024" in index
+    assert "selectedVideoId=''" not in index
+    assert "selectedVideoId=null" in index
+    assert "if(i===0&&selectedVideoId===null)" in index
+    assert 'id="high-risk-rows"' in index
+    assert 'id="all-rows"' in index
+    assert "Number(x.risk_level)===2" in index
+    assert "x.imu_posture||'--'" in index
+    assert "['低','中','高'][n]" in index
+    assert '<th>风险</th><th>位置</th>' in index
+    assert "positionLabel(x)" in index
+    assert 'colspan="8"' in index
+    assert '<th>可行驶区域</th><th>风险</th>' in index
+    assert "drivableLabel(x.drivable_area_ratio)" in index
+    assert "x.min_ttc_s" not in index
 
 
 def test_serial_retry() -> None:
@@ -173,6 +207,7 @@ def main() -> None:
     test_display_stability()
     test_mask_stability()
     test_bounded_cloud_queue()
+    test_cloud_player_keeps_selection()
     test_serial_retry()
     test_camera_recovery_loop()
     print("dashboard resilience regressions passed")

@@ -11,6 +11,8 @@ import threading
 import time
 from typing import Any, Dict
 
+from src.dashboard.risk_score_variation import RiskScoreVariation
+
 
 class DashboardStateStore:
     """线程安全的系统状态存储器。
@@ -20,8 +22,9 @@ class DashboardStateStore:
     _version 递增计数器，供 WebSocket 端点检测状态变更。
     """
 
-    def __init__(self) -> None:
+    def __init__(self, score_variation: RiskScoreVariation | None = None) -> None:
         self._lock = threading.Lock()
+        self._score_variation = score_variation
         self._state: Dict[str, Any] = {
             "timestamp": 0.0,
             "risk_score": 0.0,
@@ -55,7 +58,10 @@ class DashboardStateStore:
     def set_state(self, state: dict) -> None:
         """写入完整状态（线程安全），版本号递增。"""
         with self._lock:
-            self._state = state
+            self._state = (
+                self._score_variation.apply(state, now_monotonic=time.monotonic())
+                if self._score_variation is not None else copy.deepcopy(state)
+            )
             self._version += 1
             self._updated_monotonic = time.monotonic()
 

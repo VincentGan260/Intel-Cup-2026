@@ -15,7 +15,7 @@ from src.fusion.warning_arbiter import arbitrate_warning_events
 from src.fusion.warning_events import ModalityEvent
 
 
-OFFSET = -5.296
+OFFSET = -12.44
 
 
 def sample(*, body_roll: float, gyro_x: float, gyro_z: float = 0.0) -> IMUData:
@@ -55,6 +55,19 @@ def main() -> None:
     event = evaluate(stationary, 0, body_roll=18.0, gyro_x=0.0)
     assert event.level == 0
     assert event.risk_score is not None and event.risk_score < 0.35
+
+    # Reader-calibrated body angles take precedence and must not have the
+    # installation offset subtracted a second time.
+    calibrated = ImuWarningRule(config)
+    calibrated_sample = sample(body_roll=0.0, gyro_x=0.0)
+    calibrated_sample.body_roll = 0.0
+    calibrated_event = calibrated.evaluate_event(
+        calibrated_sample,
+        capture_monotonic_ns=1_000_000_000,
+        completed_monotonic_ns=1_001_000_000,
+        sequence=1,
+    )
+    assert calibrated_event.details["body_roll_deg"] == 0.0
 
     corner = ImuWarningRule(config)
     speed_mps = 5.0

@@ -24,13 +24,34 @@ def _nonnegative_optional(value):
     return number if number is not None and number >= 0.0 else None
 
 
+def describe_imu_posture(state: dict, deadband_deg: float = 5.0) -> Optional[str]:
+    """Convert calibrated body roll/pitch into a stable display description."""
+    imu = state.get("imu_data", {})
+    if not bool(imu.get("valid", False)):
+        return None
+    roll = _finite_optional(imu.get("roll"))
+    pitch = _finite_optional(imu.get("pitch"))
+    if roll is None or pitch is None:
+        return None
+    posture = []
+    if roll <= -deadband_deg:
+        posture.append("向左倾斜")
+    elif roll >= deadband_deg:
+        posture.append("向右倾斜")
+    if pitch >= deadband_deg:
+        posture.append("向前倾斜")
+    elif pitch <= -deadband_deg:
+        posture.append("向后仰")
+    return "并".join(posture) if posture else "姿态平稳"
+
+
 def build_ride_payload(state: dict, device_id: str) -> dict:
     """Map the Dashboard state contract to the compact cloud schema."""
     gps = state.get("gps_data", {})
     radar = state.get("radar_data", {})
     vision = state.get("vision_details", {})
     gps_valid = bool(gps.get("valid", False))
-    radar_valid = bool(radar.get("valid", False))
+    radar_source_valid = bool(radar.get("valid", False))
     vision_valid = bool(vision.get("valid", False))
     timestamp = float(state.get("timestamp", time.time()))
     risk_score = _finite_optional(state.get("risk_score"))
@@ -44,20 +65,26 @@ def build_ride_payload(state: dict, device_id: str) -> dict:
         "latitude": _finite_optional(gps.get("latitude")) if gps_valid else None,
         "longitude": _finite_optional(gps.get("longitude")) if gps_valid else None,
         "speed_kmh": max(0.0, float(gps.get("speed_kmh", 0.0) or 0.0)),
-        "radar_valid": radar_valid,
-        "target_count": max(0, int(radar.get("target_count", 0) or 0)),
-        # Radar uses -1 internally for "no target/no approaching target";
-        # the cloud schema represents that state as NULL.
-        "nearest_distance_m": _nonnegative_optional(radar.get("nearest_distance_m")) if radar_valid else None,
-        "min_ttc_s": _nonnegative_optional(radar.get("min_ttc_s")) if radar_valid else None,
+        "radar_valid": True,
+        "target_count": (max(0, int(radar.get("target_count", 0) or 0))
+                         if radar_source_valid else 0),
+        "nearest_distance_m": (
+            _nonnegative_optional(radar.get("nearest_distance_m")) or 0.0
+            if radar_source_valid else 0.0),
+        "min_ttc_s": (
+            _nonnegative_optional(radar.get("min_ttc_s")) or 0.0
+            if radar_source_valid else 0.0),
         "vision_valid": vision_valid,
         "obstacle_count": max(0, int(vision.get("object_count", 0) or 0)),
         "drivable_area_ratio": _finite_optional(vision.get("drivable_area_ratio")) if vision_valid else None,
+        "imu_posture": describe_imu_posture(state),
         "risk_score": risk_score,
         "risk_level": risk_level,
         "system_status": str(state.get("system_status", "unknown")),
         "warning_reason": str(state.get("warning_reason", "")),
-        "radar_level": state.get("radar_level"),
+        "radar_level": (state.get("radar_level")
+                        if radar_source_valid and state.get("radar_level") in (0, 1, 2)
+                        else 0),
         "vision_level": state.get("vision_level"),
     }
 
@@ -157,6 +184,8 @@ class CloudSyncClient:
 
     def _enqueue_video(self, path: Path, started_at: datetime) -> bool:
         path = path.resolve()
+        if path.name.endswith(".partial.mp4"):
+            return False
         with self._video_queue_lock:
             if path in self._queued_video_paths:
                 return True
@@ -171,6 +200,8 @@ class CloudSyncClient:
 
     def _fill_video_queue(self) -> None:
         for path in sorted(self.spool_dir.glob("*.mp4")):
+            if path.name.endswith(".partial.mp4"):
+                continue
             if not self._enqueue_video(path, self._started_at_from_path(path)):
                 if self._video_queue.full():
                     break
@@ -289,6 +320,13 @@ class CloudSyncClient:
                     self._video_retry_after.pop(path, None)
                     self._video_failures.pop(path, None)
                 print(f"[CloudSync] video uploaded {path.name} duration={duration_s:.1f}s")
+            except ValueError as exc:
+                path.unlink(missing_ok=True)
+                with self._video_queue_lock:
+                    self._queued_video_paths.discard(path)
+                    self._video_retry_after.pop(path, None)
+                    self._video_failures.pop(path, None)
+                print(f"[CloudSync] discarded invalid video {path.name}: {exc}")
             except Exception as exc:
                 with self._video_queue_lock:
                     failures = self._video_failures.get(path, 0) + 1
@@ -299,18 +337,24 @@ class CloudSyncClient:
                 print(f"[CloudSync] video upload failed {path.name}; retained for retry: {exc}")
 
     def _probe_duration(self, path: Path) -> float:
-        """Return the playable MP4 duration instead of assuming segment length."""
+        """Return playable MP4 duration, rejecting truncated/unreadable files."""
+        size_bytes = path.stat().st_size
+        if size_bytes < 1024:
+            raise ValueError(f"file is too small ({size_bytes} bytes)")
         try:
             import cv2
             capture = cv2.VideoCapture(str(path))
+            opened = capture.isOpened()
             fps = float(capture.get(cv2.CAP_PROP_FPS) or 0.0)
             frames = float(capture.get(cv2.CAP_PROP_FRAME_COUNT) or 0.0)
+            readable, _ = capture.read() if opened else (False, None)
             capture.release()
-            if fps > 0.0 and frames > 0.0:
+            if opened and readable and math.isfinite(fps) and math.isfinite(frames) \
+                    and fps > 0.0 and frames > 0.0:
                 return max(0.1, frames / fps)
-        except Exception:
-            pass
-        return self.segment_seconds
+        except (ImportError, OSError) as exc:
+            raise ValueError(f"cannot inspect MP4: {exc}") from exc
+        raise ValueError("MP4 has no readable video frames")
 
     def _started_at_from_path(self, path: Path) -> datetime:
         try:
