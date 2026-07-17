@@ -2,6 +2,8 @@
 
 本文说明比赛预警规则如何配置、运行、验证和标定。当前普通笔记本用于规则与时序测试；视觉 NPU/GPU 性能、真实外设周期和实车阈值必须在 DK2500 及车辆上验证。
 
+队友上车逐项调参时，直接使用`docs/plan/上车实测风险规则调参操作手册.md`。
+
 ## 1. 这套工具解决什么问题
 
 风险规则工程化不改变“危险如何定义”，而是保证规则具备以下能力：
@@ -122,9 +124,11 @@ Copy-Item configs/warning_rules.yaml configs/warning_rules_margin_015.yaml
 1. 修改候选文件中的 `version`。
 2. 每轮只修改一个参数或一条判断。
 3. 运行第 6 节全部相关测试。
-4. 用同一段录制分别回放基线和候选配置。
+4. 在同一路线、同一场景下重新实测候选配置。
 5. 比较首次报警时刻、等级、连续分数、误报、漏报和等级变化次数。
 6. 没有明确改善时回退候选，不顺带修改第二个参数。
+
+当前回放会优先复用录制中的雷达、视觉和IMU风险事件，不会根据新YAML完整重算所有单模态规则。因此它适合检查仲裁、时序和故障降级，不可替代候选参数的重新实测。
 
 禁止把 `urgent_reference_s` 描述为制动安全时间。它只是骑手需要立即采取行动的紧迫参考。
 
@@ -159,7 +163,7 @@ Copy-Item configs/warning_rules.yaml configs/warning_rules_margin_015.yaml
   --output outputs/replay_baseline.json
 ```
 
-候选参数回放：
+使用候选配置回放可检查配置兼容性和仲裁行为，但已记录的单模态事件不会被完整重算：
 
 ```powershell
 .\.venv\Scripts\python.exe scripts/replay_warning_session.py `
