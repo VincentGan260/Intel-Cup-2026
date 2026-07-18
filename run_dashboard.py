@@ -406,6 +406,8 @@ def main() -> None:
                         help="cloud API base URL")
     parser.add_argument("--device-id", default="bike-001",
                         help="cloud device identifier")
+    parser.add_argument("--no-bonjour", action="store_true",
+                        help="disable RiderGuardian Bonjour/mDNS advertisement")
     parser.add_argument("--cloud-state-hz", type=float, default=1.0,
                         help="ride sample upload frequency")
     parser.add_argument("--cloud-video-fps", type=float, default=10.0,
@@ -991,6 +993,16 @@ def main() -> None:
     import uvicorn
 
     print("=" * 55)
+
+    bonjour_service = None
+    if not args.no_bonjour:
+        from src.dashboard.bonjour import BonjourDashboardService
+
+        bonjour_service = BonjourDashboardService(
+            port=args.port,
+            device_id=args.device_id,
+        )
+        bonjour_service.start()
     print("  骑手前向安全预警 Dashboard")
     print(f"  模式:     {args.dashboard_mode}")
     print(f"  地址:     http://{args.host}:{args.port}")
@@ -1039,6 +1051,8 @@ def main() -> None:
         # consume copied cached frames, so keeping /dev/video0 open during the
         # potentially slow upload shutdown prevents an immediate restart.
         camera.release()
+        if bonjour_service is not None:
+            bonjour_service.close()
         # 串口读取和视觉推理都有有界超时；必须等写线程真正退出后再关闭Recorder，
         # 否则可能出现后台线程向已关闭文件写入的竞争。
         state_thread.join(timeout=5.0)

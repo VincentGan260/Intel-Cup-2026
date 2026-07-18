@@ -5,3 +5,4 @@ numpy
 pyyaml
 openvino
 requests
+zeroconf>=0.147

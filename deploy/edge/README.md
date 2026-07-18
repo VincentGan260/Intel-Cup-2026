@@ -26,6 +26,11 @@ journalctl -u rider-dashboard.service -n 100 --no-pager
 curl http://127.0.0.1:8000/api/health
 ```
 
+The dashboard publishes `_riderguardian._tcp` over Bonjour/mDNS so the iOS app
+can discover its current hotspot address. Install `requirements/dashboard.txt`
+on the board and ensure UDP port 5353 is not blocked. Use `--no-bonjour` only
+when local app discovery is intentionally disabled.
+
 The service runs real GPS/radar input, vision inference, cloud ride-sample upload,
 and 60-second raw video segmentation. Do not enable it before checking the
 camera and serial-device configuration on the board.
