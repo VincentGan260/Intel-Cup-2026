@@ -452,8 +452,10 @@ async def api_health() -> JSONResponse:
     """服务健康检查。"""
     state_age_ms = None
     state_version = None
+    state = {}
     if _state_store is not None:
-        _, state_version, state_age_ms = _state_store.get_snapshot()
+        state, state_version, state_age_ms = _state_store.get_snapshot()
+    motor = state.get("motor", {}) if isinstance(state, dict) else {}
     return JSONResponse(
         content={
             "status": "ok",
@@ -464,6 +466,12 @@ async def api_health() -> JSONResponse:
             "video_frame_age_ms": (
                 round(frame_age, 1) if (frame_age := _get_video_frame_age_ms()) is not None else None
             ),
+            "decision_engine": state.get("decision_engine"),
+            "old_rules_loaded": bool(state.get("old_rules_loaded", False)),
+            "motor_control": bool(state.get("motor_control", False)),
+            "motor_connected": bool(motor.get("connected", False)),
+            "motor_faulted": bool(motor.get("faulted", False)),
+            "motor_gate_open": bool(motor.get("gate_open", False)),
             "version": "0.1.0",
         }
     )

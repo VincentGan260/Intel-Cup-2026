@@ -9,6 +9,15 @@ if str(PROJECT_ROOT) not in sys.path:
 from src.dashboard.cloud_sync import build_ride_payload
 
 
+EXPECTED_FIELDS = (
+    "device_id", "collected_at", "gps_valid", "latitude", "longitude",
+    "speed_kmh", "radar_valid", "target_count", "nearest_distance_m",
+    "min_ttc_s", "vision_valid", "obstacle_count", "drivable_area_ratio",
+    "imu_posture", "risk_score", "risk_level", "system_status",
+    "warning_reason", "radar_level", "vision_level",
+)
+
+
 def main() -> int:
     state = {
         "timestamp": 1_700_000_000.0,
@@ -23,6 +32,7 @@ def main() -> int:
         "imu_data": {"valid": True, "roll": -8.0, "pitch": 6.0},
     }
     payload = build_ride_payload(state, "bike-001")
+    assert tuple(payload) == EXPECTED_FIELDS
     assert payload["device_id"] == "bike-001"
     assert payload["target_count"] == 2
     assert payload["obstacle_count"] == 3
@@ -30,6 +40,7 @@ def main() -> int:
     assert payload["drivable_area_ratio"] == 0.63
     assert payload["risk_level"] == 1
     invalid = build_ride_payload({"timestamp": 1_700_000_000.0}, "bike-001")
+    assert tuple(invalid) == EXPECTED_FIELDS
     assert invalid["latitude"] is None
     assert invalid["radar_valid"] is True
     assert invalid["target_count"] == 0

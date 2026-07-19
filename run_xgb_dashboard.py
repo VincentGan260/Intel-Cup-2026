@@ -2,7 +2,7 @@
 """Standalone DK-2500 XGBoost risk monitor.
 
 This entry point owns the sensors while it runs.  It intentionally does not
-import the deterministic risk rules, warning arbitration, or any motor driver.
+import the deterministic risk rules or warning arbitration.
 """
 
 from __future__ import annotations
@@ -83,6 +83,9 @@ def _vision_worker(
         last_frame_id = frame_id
         try:
             store.publish("vision", adapter.process(frame))
+            from src.dashboard.server import update_vision_result_cache
+
+            update_vision_result_cache(adapter.get_latest_vision_result())
         except Exception as exc:
             store.publish(
                 "vision", VisionData(timestamp=time.time(), valid=False), str(exc)
@@ -136,6 +139,8 @@ class JsonlLogger:
             "prediction": state.get("prediction"),
             "features": state.get("features"),
             "sensors": state.get("sensors"),
+            "motor_control": state.get("motor_control"),
+            "motor": state.get("motor"),
         }
         self._file.write(json.dumps(record, ensure_ascii=False) + "\n")
 
@@ -155,6 +160,9 @@ class DisabledCamera:
 
     def get_jpeg_frame(self) -> bytes:
         return b""
+
+    def get_bgr_frame(self):
+        return None
 
     def release(self) -> None:
         return None
@@ -188,7 +196,7 @@ def _build_feature_config(config: dict):
 def main() -> None:
     parser = argparse.ArgumentParser(description="Standalone XGBoost risk monitor")
     parser.add_argument("--host", default="0.0.0.0")
-    parser.add_argument("--port", type=int, default=8001)
+    parser.add_argument("--port", type=int, default=8000)
     parser.add_argument("--profile", default="dk2500", choices=["dk2500", "windows"])
     parser.add_argument("--sensor-mode", default="real", choices=["real", "mock"])
     parser.add_argument("--camera-id", type=int, default=0)
@@ -204,7 +212,28 @@ def main() -> None:
     parser.add_argument("--log", default="data/xgb_live/risk_predictions.jsonl")
     parser.add_argument("--state-hz", type=float, default=None)
     parser.add_argument("--inference-hz", type=float, default=None)
+    parser.add_argument(
+        "--motor-mode",
+        default="disabled",
+        choices=["disabled", "mock", "real"],
+    )
+    parser.add_argument(
+        "--confirm-motor-real",
+        action="store_true",
+        help="required interlock before opening the real DRV2605 I2C device",
+    )
+    parser.add_argument("--cloud-enable", action="store_true")
+    parser.add_argument("--cloud-url", default="http://124.70.108.34")
+    parser.add_argument("--device-id", default="bike-001")
+    parser.add_argument("--cloud-state-hz", type=float, default=1.0)
+    parser.add_argument("--cloud-video-fps", type=float, default=10.0)
+    parser.add_argument("--cloud-video-seconds", type=float, default=60.0)
+    parser.add_argument("--cloud-spool", default="data/cloud_spool")
+    parser.add_argument("--cloud-video-queue-size", type=int, default=8)
+    parser.add_argument("--cloud-spool-max-gb", type=float, default=2.0)
     args = parser.parse_args()
+    if args.motor_mode == "real" and not args.confirm_motor_real:
+        parser.error("--motor-mode real requires --confirm-motor-real")
 
     import yaml
 
@@ -227,7 +256,7 @@ def main() -> None:
     from src.dashboard.state_store import DashboardStateStore
     from src.fusion.data_types import GPSData, IMUData, RadarData, VisionData
     from src.risk_ml.feature_window import FEATURE_NAMES, XGBoostFeatureWindow
-    from src.risk_ml.predictor import XGBoostRiskPredictor
+    from src.risk_ml.predictor import MODULE_FEATURES, XGBoostRiskPredictor
     from src.sensors.gps_reader import GPSReader
     from src.sensors.imu_reader import IMUReader
     from src.sensors.radar_reader import RadarReader
@@ -236,6 +265,18 @@ def main() -> None:
     if tuple(predictor.feature_names) != FEATURE_NAMES:
         raise RuntimeError("runtime feature order does not match trained model metadata")
     extractor = XGBoostFeatureWindow(_build_feature_config(runtime_cfg))
+
+    motor_runtime = None
+    if args.motor_mode != "disabled":
+        from src.risk_ml.motor_runtime import XGBoostMotorRuntime
+
+        motor_cfg = profile_cfg["motor"]
+        motor_runtime = XGBoostMotorRuntime(
+            mode=args.motor_mode,
+            i2c_bus=int(motor_cfg["i2c_bus"]),
+            i2c_addr=int(str(motor_cfg["driver_address"]), 16),
+        )
+        motor_runtime.start()
 
     camera_cfg = ports_cfg.get("camera", {})
     if args.disable_camera:
@@ -270,16 +311,46 @@ def main() -> None:
 
     snapshots = SnapshotStore()
     state_store = DashboardStateStore()
+    started_at = time.time()
     state_store.set_state({
+        "schema_version": "xgb-risk-v2",
         "timestamp": time.time(),
         "status": "starting",
         "decision_engine": "xgboost-only",
-        "motor_control": False,
+        "motor_control": motor_runtime is not None,
+        "motor": (
+            motor_runtime.snapshot() if motor_runtime is not None else {
+                "enabled": False,
+                "mode": "disabled",
+                "connected": False,
+                "faulted": False,
+                "gate_open": False,
+                "gate_reason": "disabled",
+                "commanded_level": 0,
+            }
+        ),
         "prediction": None,
         "features": {},
+        "modules": {},
         "sensors": {},
     })
     logger = JsonlLogger(rooted(args.log))
+    cloud_sync = None
+    if args.cloud_enable:
+        from src.dashboard.cloud_sync import CloudSyncClient
+
+        cloud_sync = CloudSyncClient(
+            base_url=args.cloud_url,
+            device_id=args.device_id,
+            camera=camera,
+            spool_dir=rooted(args.cloud_spool),
+            state_hz=args.cloud_state_hz,
+            video_fps=args.cloud_video_fps,
+            segment_seconds=args.cloud_video_seconds,
+            video_queue_size=args.cloud_video_queue_size,
+            spool_max_gb=args.cloud_spool_max_gb,
+        )
+        cloud_sync.start()
     stop_event = threading.Event()
     threads = [
         threading.Thread(
@@ -358,45 +429,143 @@ def main() -> None:
                 status = "low_confidence"
             else:
                 status = "active"
-            state = {
-                "timestamp": time.time(),
-                "status": status,
-                "decision_engine": "xgboost-only",
-                "old_rules_loaded": False,
-                "motor_control": False,
-                "prediction": last_prediction.as_dict() if last_prediction else None,
-                "prediction_error": prediction_error,
-                "features": _serializable_features(frame.values),
-                "feature_window": {
+
+            motor_gate_open = False
+            motor_gate_reason = "disabled"
+            if motor_runtime is not None:
+                required_sensor_statuses = {
+                    "radar": radar_status["status"],
+                    "imu": imu_status["status"],
+                    "vision": (
+                        vision_status["status"]
+                        if vision_adapter is not None else "disabled"
+                    ),
+                }
+                if not frame.warm:
+                    motor_gate_reason = "feature_window_warming"
+                elif last_prediction is None:
+                    motor_gate_reason = "prediction_unavailable"
+                elif last_prediction.confidence < float(
+                    runtime["confidence_warning_below"]
+                ):
+                    motor_gate_reason = "prediction_low_confidence"
+                elif any(
+                    value != "active"
+                    for value in required_sensor_statuses.values()
+                ):
+                    motor_gate_reason = "required_sensor_not_active"
+                else:
+                    motor_gate_open = True
+                    motor_gate_reason = "xgboost_prediction_accepted"
+
+                if predicted_now:
+                    motor_runtime.apply_prediction(
+                        level=last_prediction.level if last_prediction else 0,
+                        risk_score=(
+                            last_prediction.risk_score
+                            if last_prediction else 0.0
+                        ),
+                        gate_open=motor_gate_open,
+                        gate_reason=motor_gate_reason,
+                    )
+                elif not motor_gate_open:
+                    motor_runtime.fail_closed(motor_gate_reason)
+
+            motor_state = (
+                motor_runtime.snapshot() if motor_runtime is not None else {
+                    "enabled": False,
+                    "mode": "disabled",
+                    "connected": False,
+                    "faulted": False,
+                    "gate_open": False,
+                    "gate_reason": "disabled",
+                    "commanded_level": 0,
+                }
+            )
+            prediction_payload = (
+                last_prediction.as_dict() if last_prediction else None
+            )
+            serialized_features = _serializable_features(frame.values)
+            sensor_states = {
+                "camera": {
+                    "status": "active" if camera.is_available else "waiting",
+                    "valid": camera.is_available,
+                },
+                "radar": radar_status,
+                "gps": gps_status,
+                "imu": imu_status,
+                "vision": vision_status if vision_adapter else {
+                    "status": "disabled",
+                    "valid": False,
+                    "age_ms": None,
+                    "error": "",
+                },
+            }
+            contributions = (
+                prediction_payload.get("module_contributions", {})
+                if prediction_payload else {}
+            )
+            module_outputs = {
+                name: {
+                    "sensor": sensor_states[name],
+                    "features": {
+                        feature_name: serialized_features.get(feature_name)
+                        for feature_name in feature_names
+                    },
+                    "contribution": contributions.get(name),
+                }
+                for name, feature_names in MODULE_FEATURES.items()
+            }
+            from src.risk_ml.dashboard_compat import build_dashboard_state
+
+            now_wall = time.time()
+            runtime_payload = {
+                **predictor.runtime_info(),
+                "profile": args.profile,
+                "sensor_mode": args.sensor_mode,
+                "state_hz": state_hz,
+                "inference_hz": inference_hz,
+                "confidence_warning_below": runtime["confidence_warning_below"],
+                "motor_mode": args.motor_mode,
+                "motor_gate_required_sensors": ["radar", "imu", "vision"],
+                "gps_required_for_motor_gate": False,
+                "vision": (
+                    vision_adapter.get_runtime_info() if vision_adapter else None
+                ),
+                "cloud_enabled": bool(cloud_sync),
+                "cloud_contract": "ride-samples-v1",
+            }
+            state = build_dashboard_state(
+                timestamp=now_wall,
+                status=status,
+                prediction=prediction_payload,
+                prediction_error=prediction_error,
+                features=serialized_features,
+                modules=module_outputs,
+                feature_window={
                     "warm": frame.warm,
                     "age_s": round(frame.window_age_s, 3),
                     **frame.diagnostics,
                 },
-                "sensors": {
-                    "camera": {
-                        "status": "active" if camera.is_available else "waiting",
-                        "valid": camera.is_available,
-                    },
-                    "radar": radar_status,
-                    "gps": gps_status,
-                    "imu": imu_status,
-                    "vision": vision_status if vision_adapter else {
-                        "status": "disabled", "valid": False, "age_ms": None, "error": ""
-                    },
-                },
-                "runtime": {
-                    **predictor.runtime_info(),
-                    "profile": args.profile,
-                    "sensor_mode": args.sensor_mode,
-                    "state_hz": state_hz,
-                    "inference_hz": inference_hz,
-                    "confidence_warning_below": runtime["confidence_warning_below"],
-                    "vision": (
-                        vision_adapter.get_runtime_info() if vision_adapter else None
-                    ),
-                },
-            }
+                sensor_states=sensor_states,
+                runtime=runtime_payload,
+                motor_control=motor_runtime is not None,
+                motor=motor_state,
+                radar=radar,
+                gps=gps,
+                imu=imu,
+                vision=vision,
+                camera_available=bool(camera.is_available),
+                frame_width=camera.width,
+                frame_height=camera.height,
+                started_at=started_at,
+            )
             state_store.set_state(state)
+            # The existing cloud schema requires non-null risk_score/risk_level.
+            # Do not emit a structurally valid but semantically incomplete
+            # sample while the XGBoost feature window is still warming.
+            if cloud_sync is not None and prediction_payload is not None:
+                cloud_sync.publish_state(state)
             if predicted_now:
                 logger.write(state)
             stop_event.wait(max(0.0, update_interval - (time.monotonic() - started)))
@@ -406,15 +575,22 @@ def main() -> None:
     )
     inference_thread.start()
 
-    from src.risk_ml import server
+    from src.dashboard import server
 
-    server.inject_runtime(state_store, camera)
+    server.inject_state_store(state_store)
+    server.inject_camera(camera)
     print("=" * 68)
     print("Standalone XGBoost Risk Monitor")
     print(f"URL: http://{args.host}:{args.port}")
     print(f"Decision engine: XGBoost only ({len(FEATURE_NAMES)} features)")
     print("Old deterministic rules: NOT LOADED")
-    print("Motor control: OFF / NOT IMPORTED")
+    print(
+        "Motor control: "
+        + (
+            f"ON / {args.motor_mode.upper()} / XGBoost gated"
+            if motor_runtime is not None else "OFF"
+        )
+    )
     print("=" * 68)
 
     received_signal = threading.Event()
@@ -434,8 +610,12 @@ def main() -> None:
         uvicorn.run(server.app, host=args.host, port=args.port, log_level="info")
     finally:
         stop_event.set()
-        camera.release()
         inference_thread.join(timeout=3.0)
+        if motor_runtime is not None:
+            motor_runtime.shutdown()
+        if cloud_sync is not None:
+            cloud_sync.close()
+        camera.release()
         for thread in threads:
             thread.join(timeout=3.0)
         if vision_adapter is not None:
