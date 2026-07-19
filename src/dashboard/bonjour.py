@@ -3,11 +3,42 @@
 from __future__ import annotations
 
 import socket
+import subprocess
 from dataclasses import dataclass
 
 
 def _local_ipv4_address() -> str:
-    """Return the preferred LAN address without sending application data."""
+    """Return the IPv4 address of the default physical LAN interface."""
+    try:
+        routes = subprocess.run(
+            ["ip", "-4", "route", "show", "default"],
+            check=True,
+            capture_output=True,
+            text=True,
+            timeout=2,
+        ).stdout.splitlines()
+        for route in routes:
+            fields = route.split()
+            if "dev" not in fields:
+                continue
+            interface = fields[fields.index("dev") + 1]
+            if interface.lower() in {"lo", "meta"}:
+                continue
+            addresses = subprocess.run(
+                ["ip", "-4", "-o", "addr", "show", "dev", interface, "scope", "global"],
+                check=True,
+                capture_output=True,
+                text=True,
+                timeout=2,
+            ).stdout.splitlines()
+            for entry in addresses:
+                fields = entry.split()
+                if "inet" in fields:
+                    return fields[fields.index("inet") + 1].split("/", 1)[0]
+    except (OSError, subprocess.SubprocessError, ValueError, IndexError):
+        pass
+
+    # Portable fallback for systems without iproute2.
     probe = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
     try:
         probe.connect(("8.8.8.8", 80))
@@ -50,7 +81,10 @@ class BonjourDashboardService:
                 },
                 server=f"{host}.local.",
             )
-            self._zeroconf = Zeroconf(ip_version=IPVersion.V4Only)
+            self._zeroconf = Zeroconf(
+                interfaces=[address],
+                ip_version=IPVersion.V4Only,
+            )
             self._zeroconf.register_service(self._info)
             print(f"[Bonjour] {service_name} -> http://{address}:{self.port}")
             return True

@@ -190,6 +190,31 @@ def radar_warning_loop(radar_reader, risk_rule, warning_system,
     print("[RadarWorker] independent warning thread stopped")
 
 
+def _start_imu_reader(profile: str, profile_cfg: dict, imu_defaults: dict):
+    """Configure IMU once and leave transient serial failures to its retry loop."""
+    from src.sensors.imu_reader import IMUReader
+
+    profile_imu_cfg = profile_cfg.get("imu", {})
+    if not profile_imu_cfg:
+        raise ValueError(f"profile={profile} 缺少 IMU 串口配置")
+    imu_cfg = {
+        **profile_imu_cfg,
+        "roll_offset_deg": float(imu_defaults["roll_offset_deg"]),
+        "pitch_offset_deg": float(imu_defaults["pitch_offset_deg"]),
+    }
+    reader = IMUReader(mode="real", config=imu_cfg)
+    reader.start()
+    port = imu_cfg.get("port", "?")
+    if reader._serial is not None:
+        print(f"    IMUReader:           OK (port={port})")
+    else:
+        # USB serial devices can appear after a systemd service starts.  Keep
+        # the reader alive so read_once() can reconnect without a service
+        # restart instead of permanently disabling IMU for this boot.
+        print(f"    IMUReader:           WAITING (port={port}, 后台自动重连)")
+    return reader
+
+
 def dashboard_state_loop(
     state_store,
     camera_producer,
@@ -633,26 +658,22 @@ def main() -> None:
         gps_reader.start()
         if args.enable_imu:
             try:
-                from src.sensors.imu_reader import IMUReader
-
-                profile_imu_cfg = profile_cfg.get("imu", {})
-                if not profile_imu_cfg:
-                    raise ValueError(f"profile={args.profile} 缺少 IMU 串口配置")
-                imu_cfg = {
-                    **profile_imu_cfg,
-                    "roll_offset_deg": float(imu_defaults["roll_offset_deg"]),
-                    "pitch_offset_deg": float(imu_defaults["pitch_offset_deg"]),
-                }
-                imu_reader = IMUReader(mode="real", config=imu_cfg)
-                imu_reader.start()
-                imu_init_ok = imu_reader._serial is not None
-                if not imu_init_ok:
-                    imu_reader = None
+                imu_reader = _start_imu_reader(
+                    args.profile, profile_cfg, imu_defaults)
+                # "Initialized" means the configured reader is running.  A
+                # missing-at-boot serial device is a recoverable connection
+                # state, not a reason to remove the reader from the state loop.
+                imu_init_ok = True
             except Exception as e:
                 print(f"[RealSensors] IMU initialization failed: {e}")
                 imu_reader = None
                 imu_init_ok = False
-        print(f"[RealSensors] profile={args.profile}; IMU={'enabled' if imu_init_ok else 'disabled'}")
+        imu_connection = (
+            "connected" if imu_reader is not None and imu_reader._serial is not None
+            else "reconnecting" if imu_reader is not None
+            else "disabled"
+        )
+        print(f"[RealSensors] profile={args.profile}; IMU={imu_connection}")
 
         from src.fusion.risk_model import RiskModel
         from src.fusion.risk_level import RiskLevelClassifier
@@ -875,30 +896,15 @@ def main() -> None:
         imu_init_ok = False
         if args.dashboard_mode == "hybrid" and args.enable_imu:
             try:
-                from src.sensors.imu_reader import IMUReader
-
                 # 加载 IMU 串口配置
                 import yaml
                 ports_path = _project_root / "configs" / "sensor_ports.yaml"
                 with open(ports_path, "r", encoding="utf-8") as f:
                     ports_cfg = yaml.safe_load(f)
                 platform_cfg = ports_cfg.get(args.profile, {})
-                profile_imu_cfg = platform_cfg.get("imu", {})
-                if not profile_imu_cfg:
-                    raise ValueError(f"profile={args.profile} 缺少 IMU 串口配置")
-                imu_cfg = {
-                    **profile_imu_cfg,
-                    "roll_offset_deg": float(imu_defaults["roll_offset_deg"]),
-                    "pitch_offset_deg": float(imu_defaults["pitch_offset_deg"]),
-                }
-                imu_reader = IMUReader(mode="real", config=imu_cfg)
-                imu_reader.start()
-                if imu_reader._serial is not None:
-                    imu_init_ok = True
-                    print(f"    IMUReader:           OK (port={imu_cfg.get('port', '?')})")
-                else:
-                    print(f"    IMUReader:           DEGRADED (串口打开失败，imu=mock)")
-                    imu_reader = None
+                imu_reader = _start_imu_reader(
+                    args.profile, platform_cfg, imu_defaults)
+                imu_init_ok = True
             except Exception as e:
                 print(f"    IMUReader:           SKIPPED ({e})")
                 imu_reader = None

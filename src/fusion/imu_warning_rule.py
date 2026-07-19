@@ -10,9 +10,9 @@ from src.fusion.warning_events import ModalityEvent
 
 @dataclass(frozen=True)
 class ImuWarningRuleConfig:
-    calibration_status: str = "estimated_from_stationary_risk_pending_measurement"
-    roll_offset_deg: float = -12.44
-    pitch_offset_deg: float = -1.493
+    calibration_status: str = "stationary_measured_pending_vehicle_validation"
+    roll_offset_deg: float = -0.231277
+    pitch_offset_deg: float = -0.518034
     turn_sign: float = -1.0
     gravity_mps2: float = 9.80665
     min_turn_compensation_speed_kmh: float = 3.0

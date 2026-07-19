@@ -319,6 +319,7 @@ def build_real_sensor_state(
     gps_connected = getattr(gps_reader, "_serial", None) is not None
     imu_connected = (imu_reader is not None
                      and getattr(imu_reader, "_serial", None) is not None)
+    imu_configured = imu_reader is not None
     vision_valid = bool(vision is not None and vision.valid)
     radar_diagnostics = (radar_reader.get_diagnostics()
                          if hasattr(radar_reader, "get_diagnostics") else {})
@@ -352,9 +353,11 @@ def build_real_sensor_state(
         "radar": {"status": radar_state, "reason": radar_reason, "diagnostics": radar_diagnostics},
         "gps": {"status": gps_state, "reason": gps_reason, "diagnostics": gps_diagnostics},
         "imu": {
-            "status": "active" if imu.valid else "invalid" if imu_connected else "disabled",
+            "status": ("active" if imu.valid else "invalid" if imu_connected
+                       else "port_closed" if imu_configured else "disabled"),
             "reason": ("imu is producing valid posture data" if imu.valid
                        else "imu serial is open but a complete sample is not available" if imu_connected
+                       else "imu is configured and waiting for its serial port" if imu_configured
                        else "imu is not enabled"),
             "diagnostics": imu_diagnostics,
         },
@@ -531,7 +534,7 @@ def build_real_sensor_state(
             "radar": ("real" if radar_state in {"tracking", "no_target", "waiting"}
                       else "invalid" if radar_connected else "off"),
             "gps": "real" if gps_state == "active" else "invalid" if gps_connected else "off",
-            "imu": "real" if imu.valid else "invalid" if imu_connected else "off",
+            "imu": ("real" if imu.valid else "invalid" if imu_configured else "off"),
             "motor": "mock" if motor_state == "mock" else "real" if motor_state == "active" else "off",
         },
         "hardware_status": hardware_status,

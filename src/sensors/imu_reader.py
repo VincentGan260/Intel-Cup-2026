@@ -110,6 +110,7 @@ class IMUReader(BaseSensorReader):
         # 零偏校准值（上电静置采样 acc_z 偏移，补偿安装倾斜/温漂）
         self._calib_acc_z_offset: float = 0.0
         self._calibrated: bool = False
+        self._startup_calibration_attempted: bool = False
 
         # EMA 平滑状态（防误触发：抑制单帧尖峰）
         self._ema_brake: float = 0.0
@@ -122,6 +123,7 @@ class IMUReader(BaseSensorReader):
             if self._connect_serial():
                 # Only calibrate during startup. Recalibrating after a reconnect
                 # could block the live pipeline while the bicycle is moving.
+                self._startup_calibration_attempted = True
                 self._run_calibration()
         else:
             print("[IMUReader] mock 模式启动")
@@ -186,7 +188,14 @@ class IMUReader(BaseSensorReader):
         ts = now()
         if self.is_real:
             if self._serial is None or not getattr(self._serial, "is_open", False):
-                self._connect_serial()
+                connected = self._connect_serial()
+                if connected and not self._startup_calibration_attempted:
+                    # At boot the USB serial node may appear after the process.
+                    # Treat that first delayed connection as startup so it gets
+                    # the same one-time calibration as an immediately available
+                    # device. Later disconnects must not recalibrate in motion.
+                    self._startup_calibration_attempted = True
+                    self._run_calibration()
             # real 模式下串口不可用必须明确返回 invalid，不得伪装成 mock 数据。
             result = (self._read_real(ts) if self._serial is not None
                       else IMUData(timestamp=ts, valid=False))

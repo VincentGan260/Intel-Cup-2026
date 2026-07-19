@@ -1,6 +1,6 @@
 schema_version: 1
-version: warning-rules-2026-07-17-published-score-variation
-calibration_status: estimated_from_stationary_risk_pending_measurement
+version: warning-rules-2026-07-18-imu-stationary-recalibration
+calibration_status: stationary_measured_pending_vehicle_validation
 
 score_contract:
   attention_boundary: 0.35
@@ -38,13 +38,12 @@ gps:
   max_factor: 1.25
 
 imu:
-  # 2026-07-17 estimated recalibration: a stationary score of about 0.25
-  # implies about -7.14 deg residual roll (left-negative), so
-  # roll0 = -5.296 - 7.14 ~= -12.44 deg. Replace with a measured stationary
-  # mean before final vehicle validation.
-  calibration_status: estimated_from_stationary_risk_pending_measurement
-  roll_offset_deg: -12.44
-  pitch_offset_deg: -1.493
+  # 2026-07-18 final installation stationary measurement (993 valid samples):
+  # IMU level, X forward, Y left, Z up. Raw mean/std:
+  # roll=-0.231277/0.002296 deg, pitch=-0.518034/0.002565 deg.
+  calibration_status: stationary_measured_pending_vehicle_validation
+  roll_offset_deg: -0.231277
+  pitch_offset_deg: -0.518034
   turn_sign: -1.0
   gravity_mps2: 9.80665
   min_turn_compensation_speed_kmh: 3.0
