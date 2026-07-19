@@ -1,0 +1,23 @@
+[Unit]
+Description=Standalone XGBoost Risk Monitor (No Rules, No Motor)
+Wants=network-online.target
+After=network-online.target
+Conflicts=rider-dashboard.service
+
+[Service]
+Type=simple
+User=intelcup
+WorkingDirectory=/home/intelcup/Intel-Cup-2026
+Environment=PYTHONUNBUFFERED=1
+Environment=OMP_NUM_THREADS=1
+Environment=OPENBLAS_NUM_THREADS=1
+ExecStart=/home/intelcup/miniconda3/envs/intel/bin/python /home/intelcup/Intel-Cup-2026/run_xgb_dashboard.py --host 0.0.0.0 --port 8001 --profile dk2500 --sensor-mode real --camera-id 0 --enable-vision
+Restart=on-failure
+RestartSec=5
+KillSignal=SIGTERM
+KillMode=control-group
+SendSIGKILL=yes
+TimeoutStopSec=30
+
+[Install]
+WantedBy=multi-user.target

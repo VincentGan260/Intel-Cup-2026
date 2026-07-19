@@ -1,0 +1,234 @@
+{
+  "model_type": "XGBClassifier",
+  "task": "three_class_rule_supervised_risk_classification",
+  "labels": {
+    "0": "低风险",
+    "1": "中风险",
+    "2": "高风险"
+  },
+  "risk_score_formula": "0.15*P(low)+0.55*P(medium)+0.90*P(high)",
+  "synthetic_data_warning": "All labels are generated from deterministic rules; metrics measure rule imitation on synthetic scenarios, not real-road generalization.",
+  "feature_columns": [
+    "gps_speed_kmh",
+    "imu_valid",
+    "pitch_abs_deg",
+    "roll_abs_deg",
+    "roll_error_deg",
+    "outward_rate_deg_s",
+    "imu_attention_duration_ms",
+    "imu_urgent_consistent_samples",
+    "acc_norm_mean_mps2",
+    "acc_delta_signed_mps2",
+    "acc_change_abs_mps2",
+    "jerk_abs_mps3",
+    "radar_valid",
+    "radar_target_count",
+    "radar_path_target_count",
+    "radar_min_distance_m",
+    "radar_relative_speed_mps",
+    "radar_closing_speed_mps",
+    "radar_ttc_s",
+    "radar_person_matched",
+    "vision_valid",
+    "object_count",
+    "path_object_count",
+    "target_is_person",
+    "target_is_vehicle",
+    "target_is_obstacle",
+    "max_path_bottom_ratio",
+    "box_growth_rate_per_s",
+    "growth_duration_s",
+    "visual_tau_s",
+    "vision_confidence"
+  ],
+  "feature_count": 31,
+  "target": "risk_label",
+  "parameters": {
+    "n_estimators": 500,
+    "max_depth": 4,
+    "learning_rate": 0.05,
+    "subsample": 0.8,
+    "colsample_bytree": 0.8,
+    "min_child_weight": 1.0,
+    "reg_lambda": 1.0,
+    "objective": "multi:softprob",
+    "num_class": 3,
+    "eval_metric": [
+      "merror",
+      "mlogloss"
+    ],
+    "tree_method": "hist",
+    "early_stopping_rounds": 30,
+    "random_state": 20260719,
+    "n_jobs": 8
+  },
+  "best_iteration": 232,
+  "best_score": 0.00877917720376798,
+  "training_seconds": 1.2714423340003123,
+  "random_seed": 20260719,
+  "input_files": {
+    "train": {
+      "path": "data/xgb/train.csv",
+      "sha256": "df63dce7424f192a9d62f970729acb9d830fa1b51580dcbae3a2df77a5d43011",
+      "rows": 5250
+    },
+    "validation": {
+      "path": "data/xgb/validation.csv",
+      "sha256": "3b69226c1d70b719d4bcd7a0290d6334e743514d56a145e0a734e430e3bb2127",
+      "rows": 1125
+    },
+    "test": {
+      "path": "data/xgb/test.csv",
+      "sha256": "b65ec7ceaf8ad5200e76e1a14654fb4b80ce3c9f6f4b3a1790e34ec9dc8bae09",
+      "rows": 1125
+    }
+  },
+  "versions": {
+    "python": "3.12.13",
+    "xgboost": "3.3.0",
+    "scikit_learn": "1.9.0",
+    "pandas": "3.0.3",
+    "numpy": "2.5.1"
+  },
+  "metrics": {
+    "validation": {
+      "accuracy": 0.9982222222222222,
+      "balanced_accuracy": 0.9985185185185186,
+      "macro_precision": 0.9983164983164983,
+      "macro_recall": 0.9985185185185186,
+      "macro_f1": 0.9984137276460583,
+      "weighted_f1": 0.9982224928658466,
+      "high_risk_recall": 1.0,
+      "high_risk_missed_count": 0,
+      "high_risk_to_low_count": 0,
+      "high_risk_miss_rate": 0.0,
+      "multiclass_log_loss": 0.008779177442193031,
+      "confusion_matrix": [
+        [
+          448,
+          2,
+          0
+        ],
+        [
+          0,
+          394,
+          0
+        ],
+        [
+          0,
+          0,
+          281
+        ]
+      ],
+      "support": {
+        "0": 450,
+        "1": 394,
+        "2": 281
+      }
+    },
+    "test": {
+      "accuracy": 0.9991111111111111,
+      "balanced_accuracy": 0.9992592592592593,
+      "macro_precision": 0.99915611814346,
+      "macro_recall": 0.9992592592592593,
+      "macro_f1": 0.9992067419415931,
+      "weighted_f1": 0.999111180035587,
+      "high_risk_recall": 1.0,
+      "high_risk_missed_count": 0,
+      "high_risk_to_low_count": 0,
+      "high_risk_miss_rate": 0.0,
+      "multiclass_log_loss": 0.00462688785046339,
+      "confusion_matrix": [
+        [
+          449,
+          1,
+          0
+        ],
+        [
+          0,
+          394,
+          0
+        ],
+        [
+          0,
+          0,
+          281
+        ]
+      ],
+      "support": {
+        "0": 450,
+        "1": 394,
+        "2": 281
+      }
+    }
+  },
+  "feature_config": {
+    "target": "risk_label",
+    "target_names": {
+      "0": "低",
+      "1": "中",
+      "2": "高"
+    },
+    "feature_columns": [
+      "gps_speed_kmh",
+      "imu_valid",
+      "pitch_abs_deg",
+      "roll_abs_deg",
+      "roll_error_deg",
+      "outward_rate_deg_s",
+      "imu_attention_duration_ms",
+      "imu_urgent_consistent_samples",
+      "acc_norm_mean_mps2",
+      "acc_delta_signed_mps2",
+      "acc_change_abs_mps2",
+      "jerk_abs_mps3",
+      "radar_valid",
+      "radar_target_count",
+      "radar_path_target_count",
+      "radar_min_distance_m",
+      "radar_relative_speed_mps",
+      "radar_closing_speed_mps",
+      "radar_ttc_s",
+      "radar_person_matched",
+      "vision_valid",
+      "object_count",
+      "path_object_count",
+      "target_is_person",
+      "target_is_vehicle",
+      "target_is_obstacle",
+      "max_path_bottom_ratio",
+      "box_growth_rate_per_s",
+      "growth_duration_s",
+      "visual_tau_s",
+      "vision_confidence"
+    ],
+    "excluded_columns": [
+      "sample_id",
+      "split",
+      "scenario_instance_id",
+      "scenario_type",
+      "timestamp_s",
+      "window_duration_s",
+      "boundary_case",
+      "target_type",
+      "imu_rule_score",
+      "motion_rule_score",
+      "radar_rule_score",
+      "vision_rule_score",
+      "rule_score",
+      "risk_label_name",
+      "hard_rule_triggered",
+      "trigger_reason"
+    ],
+    "missing_value_fields": [
+      "radar_min_distance_m",
+      "radar_ttc_s",
+      "visual_tau_s"
+    ],
+    "categorical_metadata_not_for_training": [
+      "target_type",
+      "scenario_type"
+    ],
+    "random_seed": 20260719
+  }
+}

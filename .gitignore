@@ -26,6 +26,7 @@ build/
 
 # Virtual environments
 .venv/
+.venv-xgb/
 venv/
 env/
 ENV/
@@ -109,6 +110,7 @@ data/samples/
 data/samples/detection/
 data/samples/segmentation/
 data/samples/images/
+data/xgb_live/
 
 # 样例文件（如果需要）
 # !data/samples/detection/.gitkeep
@@ -146,6 +148,7 @@ data/samples/images/
 *.tmp
 *.temp
 tmp/
+.codex_tmp/
 .cache/
 *.bak
 *.swp

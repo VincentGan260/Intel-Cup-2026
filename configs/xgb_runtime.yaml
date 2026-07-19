@@ -1,0 +1,39 @@
+# Standalone XGBoost runtime configuration.
+#
+# This file belongs only to src/risk_ml.  It does not override or import the
+# deterministic competition warning rules in configs/warning_rules.yaml.
+window:
+  window_s: 1.0
+  warmup_s: 0.5
+
+radar_features:
+  # Model feature gate, not an actuator threshold.
+  path_gate_half_width_m: 0.355
+  max_abs_angle_deg: 15.0
+
+vision_features:
+  fallback_center_x_min_ratio: 0.25
+  fallback_center_x_max_ratio: 0.75
+  fallback_path_bottom_min_ratio: 0.40
+  growth_epsilon_per_s: 0.02
+
+imu_features:
+  turn_sign: -1.0
+  gravity_mps2: 9.80665
+  min_turn_compensation_speed_kmh: 3.0
+  attention_error_deg: 10.0
+  critical_error_deg: 25.0
+  attention_outward_rate_deg_s: 5.0
+  urgent_min_error_deg: 8.0
+  urgent_outward_rate_deg_s: 10.0
+  prediction_horizon_s: 0.8
+  max_sample_gap_ms: 250.0
+
+runtime:
+  state_hz: 20.0
+  inference_hz: 2.0
+  confidence_warning_below: 0.65
+  radar_stale_ms: 500.0
+  imu_stale_ms: 500.0
+  gps_stale_ms: 2500.0
+  vision_stale_ms: 1500.0
