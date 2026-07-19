@@ -1,0 +1,69 @@
+{
+  "target": "risk_label",
+  "target_names": {
+    "0": "低",
+    "1": "中",
+    "2": "高"
+  },
+  "feature_columns": [
+    "gps_speed_kmh",
+    "imu_valid",
+    "pitch_abs_deg",
+    "roll_abs_deg",
+    "roll_error_deg",
+    "outward_rate_deg_s",
+    "imu_attention_duration_ms",
+    "imu_urgent_consistent_samples",
+    "acc_norm_mean_mps2",
+    "acc_delta_signed_mps2",
+    "acc_change_abs_mps2",
+    "jerk_abs_mps3",
+    "radar_valid",
+    "radar_target_count",
+    "radar_path_target_count",
+    "radar_min_distance_m",
+    "radar_relative_speed_mps",
+    "radar_closing_speed_mps",
+    "radar_ttc_s",
+    "radar_person_matched",
+    "vision_valid",
+    "object_count",
+    "path_object_count",
+    "target_is_person",
+    "target_is_vehicle",
+    "target_is_obstacle",
+    "max_path_bottom_ratio",
+    "box_growth_rate_per_s",
+    "growth_duration_s",
+    "visual_tau_s",
+    "vision_confidence"
+  ],
+  "excluded_columns": [
+    "sample_id",
+    "split",
+    "scenario_instance_id",
+    "scenario_type",
+    "timestamp_s",
+    "window_duration_s",
+    "boundary_case",
+    "target_type",
+    "imu_rule_score",
+    "motion_rule_score",
+    "radar_rule_score",
+    "vision_rule_score",
+    "rule_score",
+    "risk_label_name",
+    "hard_rule_triggered",
+    "trigger_reason"
+  ],
+  "missing_value_fields": [
+    "radar_min_distance_m",
+    "radar_ttc_s",
+    "visual_tau_s"
+  ],
+  "categorical_metadata_not_for_training": [
+    "target_type",
+    "scenario_type"
+  ],
+  "random_seed": 20260719
+}

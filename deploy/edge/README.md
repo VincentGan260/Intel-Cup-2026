@@ -34,3 +34,10 @@ when local app discovery is intentionally disabled.
 The service runs real GPS/radar input, vision inference, cloud ride-sample upload,
 and 60-second raw video segmentation. Do not enable it before checking the
 camera and serial-device configuration on the board.
+
+## Standalone XGBoost experiment
+
+The independent, no-motor XGBoost service is documented in
+[`docs/guide/xgboost_dk2500.md`](../../docs/guide/xgboost_dk2500.md).
+It uses `rider-xgb.service` on port 8001 and conflicts with this rule-based
+service so both processes cannot claim the same camera and serial devices.

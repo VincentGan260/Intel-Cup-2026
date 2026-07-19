@@ -1,0 +1,109 @@
+{
+  "seed": 20260719,
+  "splits": {
+    "train": {
+      "rows": 5250,
+      "class_counts": {
+        "低": 2100,
+        "中": 1837,
+        "高": 1313
+      },
+      "boundary_cases": 648,
+      "scenario_counts": {
+        "distant_person_off_path": 302,
+        "moderate_acc_change": 263,
+        "multisensor_high": 264,
+        "normal_straight": 353,
+        "normal_turn": 338,
+        "person_approach_off_path": 253,
+        "predicted_lateral_instability": 266,
+        "radar_attention": 239,
+        "radar_receding": 412,
+        "radar_urgent": 238,
+        "road_bump": 250,
+        "sensor_gap": 337,
+        "severe_acc_change": 261,
+        "sustained_outward_lean": 289,
+        "vision_looming_attention": 282,
+        "vision_looming_urgent": 284,
+        "vision_path_near": 261,
+        "visual_path_candidate": 358
+      }
+    },
+    "validation": {
+      "rows": 1125,
+      "class_counts": {
+        "低": 450,
+        "中": 394,
+        "高": 281
+      },
+      "boundary_cases": 375,
+      "scenario_counts": {
+        "distant_person_off_path": 88,
+        "moderate_acc_change": 56,
+        "multisensor_high": 57,
+        "normal_straight": 73,
+        "normal_turn": 73,
+        "person_approach_off_path": 56,
+        "predicted_lateral_instability": 55,
+        "radar_attention": 56,
+        "radar_receding": 76,
+        "radar_urgent": 52,
+        "road_bump": 56,
+        "sensor_gap": 68,
+        "severe_acc_change": 59,
+        "sustained_outward_lean": 49,
+        "vision_looming_attention": 52,
+        "vision_looming_urgent": 58,
+        "vision_path_near": 69,
+        "visual_path_candidate": 72
+      }
+    },
+    "test": {
+      "rows": 1125,
+      "class_counts": {
+        "低": 450,
+        "中": 394,
+        "高": 281
+      },
+      "boundary_cases": 398,
+      "scenario_counts": {
+        "distant_person_off_path": 92,
+        "moderate_acc_change": 67,
+        "multisensor_high": 53,
+        "normal_straight": 59,
+        "normal_turn": 73,
+        "person_approach_off_path": 45,
+        "predicted_lateral_instability": 53,
+        "radar_attention": 57,
+        "radar_receding": 79,
+        "radar_urgent": 47,
+        "road_bump": 59,
+        "sensor_gap": 77,
+        "severe_acc_change": 54,
+        "sustained_outward_lean": 62,
+        "vision_looming_attention": 48,
+        "vision_looming_urgent": 74,
+        "vision_path_near": 56,
+        "visual_path_candidate": 70
+      }
+    }
+  },
+  "checks": {
+    "all_score_bands_match_labels": true,
+    "all_final_scores_equal_modality_max": true,
+    "sample_ids_unique": true,
+    "positive_and_negative_severe_acceleration_present": true,
+    "severe_acceleration_mean_risk_exceeds_normal": true,
+    "matched_approaching_person_mean_risk_exceeds_no_radar_target": true,
+    "urgent_visual_looming_mean_risk_exceeds_no_path_object": true
+  },
+  "totals": {
+    "rows": 7500,
+    "class_counts": {
+      "低": 3000,
+      "中": 2625,
+      "高": 1875
+    }
+  }
+}
