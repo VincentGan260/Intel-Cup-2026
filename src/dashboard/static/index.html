@@ -624,21 +624,26 @@
       </div>
 
       <div class="card" id="modality-risk-card">
-        <div class="card-title">分模态风险</div>
+        <div class="card-title" title="各模态的 TreeSHAP 绝对贡献占比，并非四个独立风险概率">XGBoost 模态贡献</div>
         <div class="risk-item-row">
-          <span class="risk-item-label">雷达</span>
+          <span class="risk-item-label">雷达贡献</span>
           <div class="risk-item-bar"><div class="risk-item-fill" id="radar-risk-fill"></div></div>
           <span class="risk-item-val" id="radar-risk-value">--</span>
         </div>
         <div class="risk-item-row">
-          <span class="risk-item-label" title="仅表示视觉路径障碍规则，不等同于模型原始框风险">视觉规则</span>
+          <span class="risk-item-label">视觉贡献</span>
           <div class="risk-item-bar"><div class="risk-item-fill" id="vision-risk-fill"></div></div>
           <span class="risk-item-val" id="vision-risk-value">--</span>
         </div>
         <div class="risk-item-row">
-          <span class="risk-item-label">IMU</span>
+          <span class="risk-item-label">IMU 贡献</span>
           <div class="risk-item-bar"><div class="risk-item-fill" id="imu-risk-fill"></div></div>
           <span class="risk-item-val" id="imu-risk-value">--</span>
+        </div>
+        <div class="risk-item-row">
+          <span class="risk-item-label">GPS 贡献</span>
+          <div class="risk-item-bar"><div class="risk-item-fill" id="gps-risk-fill"></div></div>
+          <span class="risk-item-val" id="gps-risk-value">--</span>
         </div>
       </div>
 
@@ -1029,7 +1034,7 @@
       }
       bar.style.width = pct;
 
-      ["radar", "vision", "imu"].forEach(function(source) {
+      ["radar", "vision", "imu", "gps"].forEach(function(source) {
         const value=finiteNumber(s[source+"_score"], null);
         const fill=$(source+"-risk-fill"), valueEl=$(source+"-risk-value");
         if(value===null){
