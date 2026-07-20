@@ -5,9 +5,11 @@ from __future__ import annotations
 
 import asyncio
 import json
+import shlex
 import sys
 from pathlib import Path
 from types import SimpleNamespace
+from unittest.mock import patch
 
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -94,6 +96,29 @@ def main() -> None:
     assert state["radar_score"] == 0.4
     assert state["gps_score"] == 0.1
     assert len(state["features"]) == 28
+    legacy_app_keys = {
+        "risk_score", "raw_risk_score", "risk_score_state",
+        "risk_decision_monotonic_ns", "risk_effective_updated_monotonic_ns",
+        "risk_source_timing", "raw_risk_source_timing",
+        "risk_timestamp_alignment", "warning_rule_config",
+        "risk_score_semantics", "risk_level", "warning_level",
+        "final_level", "raw_final_level", "last_known_level",
+        "risk_label", "risk_status", "risk_reason", "warning_reason",
+        "raw_warning_reason", "system_status", "radar_level",
+        "vision_level", "imu_level", "radar_score", "vision_score",
+        "imu_score", "radar_status", "radar_safety_status",
+        "vision_status", "imu_status", "radar_score_status",
+        "vision_score_status", "imu_score_status", "gps_context_status",
+        "gps_speed_factor", "vision_proximity_score",
+        "vision_proximity_adjusted_score", "evidence_sources",
+        "both_modalities_active", "risk_rule", "risk_items", "weights",
+        "sensors", "hardware_status", "startup_readiness", "mode",
+        "radar_data", "gps_data", "imu_data", "fusion_data",
+        "performance", "timestamps", "vision_details",
+    }
+    assert legacy_app_keys <= set(state)
+    assert state["mode"] == "real-sensors"
+    assert state["risk_label"] == "high"
 
     sensors["imu"] = {
         "status": "invalid", "valid": False, "age_ms": 10.0, "error": ""
@@ -173,6 +198,32 @@ def main() -> None:
         text in html
         for text in ("XGBoost 模态贡献", "GPS 贡献", "/video_annotated_feed")
     )
+
+    unit_text = (
+        ROOT / "deploy" / "edge" / "rider-dashboard.service"
+    ).read_text(encoding="utf-8")
+    exec_start = next(
+        line.split("=", 1)[1]
+        for line in unit_text.splitlines()
+        if line.startswith("ExecStart=")
+    )
+    unit_argv = shlex.split(exec_start)
+    assert unit_argv[1].endswith("/run_dashboard.py")
+    assert "run_xgb_dashboard.py" not in exec_start
+    assert "--enable-risk-rule" in unit_argv
+    assert "--configured-warning-range-m" in unit_argv
+    with (
+        patch("run_xgb_dashboard.main") as xgb_main,
+        patch.object(sys, "argv", unit_argv[1:]),
+    ):
+        from run_dashboard import main as legacy_dashboard_main
+
+        legacy_dashboard_main()
+    xgb_argv = xgb_main.call_args.args[0]
+    assert xgb_argv[xgb_argv.index("--motor-mode") + 1] == "real"
+    assert "--confirm-motor-real" in xgb_argv
+    assert "--cloud-enable" in xgb_argv
+    assert "--enable-vision" in xgb_argv
     print("xgboost dashboard/cloud compatibility test passed")
 
 
