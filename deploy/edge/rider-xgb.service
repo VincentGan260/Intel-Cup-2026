@@ -1,5 +1,5 @@
 [Unit]
-Description=Standalone XGBoost Risk Monitor (No Old Rules, Real Motor)
+Description=XGBoost Risk Monitor with Sensor Degradation (Real Motor)
 Wants=network-online.target
 After=network-online.target
 Conflicts=rider-dashboard.service

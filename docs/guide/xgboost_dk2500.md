@@ -7,7 +7,7 @@
 ## 隔离边界
 
 - 旧服务：`rider-dashboard.service`，原文件保持不变。
-- 新服务：`rider-xgb.service`，端口 `8001`。
+- 新服务：`rider-xgb.service`，端口 `8000`。
 - 新入口：`run_xgb_dashboard.py`。
 - 模型日志：`data/xgb_live/risk_predictions.jsonl`。
 - 新服务声明 `Conflicts=rider-dashboard.service`，避免串口和摄像头被重复打开。
@@ -46,7 +46,7 @@ journalctl -u rider-xgb.service -n 100 --no-pager
 网页地址：
 
 ```text
-http://<DK2500-IP>:8001
+http://<DK2500-IP>:8000
 ```
 
 健康接口必须显示：
