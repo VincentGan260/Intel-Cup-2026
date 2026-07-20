@@ -215,6 +215,59 @@ def _start_imu_reader(profile: str, profile_cfg: dict, imu_defaults: dict):
     return reader
 
 
+def _run_xgboost_with_legacy_dashboard_args(args) -> None:
+    """Run the new engine behind the unchanged legacy service CLI contract."""
+    import os
+
+    os.environ.setdefault("OMP_NUM_THREADS", "1")
+    os.environ.setdefault("OPENBLAS_NUM_THREADS", "1")
+    if args.record:
+        raise ValueError(
+            "XGBoost legacy-dashboard bridge does not support --record"
+        )
+    if args.reload:
+        raise ValueError(
+            "XGBoost legacy-dashboard bridge does not support --reload"
+        )
+
+    xgb_argv = [
+        "--host", args.host,
+        "--port", str(args.port),
+        "--profile", args.profile,
+        "--sensor-mode", "real",
+        "--camera-id", str(args.camera_id),
+        "--vision-config", args.vision_config,
+        "--state-hz", str(args.state_hz),
+        "--motor-mode", (
+            "disabled" if args.motor_mode == "off" else args.motor_mode
+        ),
+        "--cloud-url", args.cloud_url,
+        "--device-id", args.device_id,
+        "--cloud-state-hz", str(args.cloud_state_hz),
+        "--cloud-video-fps", str(args.cloud_video_fps),
+        "--cloud-video-seconds", str(args.cloud_video_seconds),
+        "--cloud-spool", args.cloud_spool,
+        "--cloud-video-queue-size", str(args.cloud_video_queue_size),
+        "--cloud-spool-max-gb", str(args.cloud_spool_max_gb),
+    ]
+    if args.enable_vision:
+        xgb_argv.append("--enable-vision")
+    if args.confirm_motor_real:
+        xgb_argv.append("--confirm-motor-real")
+    if args.cloud_enable:
+        xgb_argv.append("--cloud-enable")
+    if args.no_bonjour:
+        xgb_argv.append("--no-bonjour")
+
+    print(
+        "[Dashboard] legacy CLI/API contract active; "
+        "risk engine=XGBoost with deterministic sensor degradation"
+    )
+    from run_xgb_dashboard import main as run_xgb_dashboard
+
+    run_xgb_dashboard(xgb_argv)
+
+
 def dashboard_state_loop(
     state_store,
     camera_producer,
@@ -597,6 +650,13 @@ def main() -> None:
             freshness_defaults["gps_stale_ms"]):
         parser.error(
             "warning GPS stale threshold must match dashboard recording sync threshold")
+
+    if args.dashboard_mode == "real" and args.enable_risk_rule:
+        try:
+            _run_xgboost_with_legacy_dashboard_args(args)
+        except ValueError as exc:
+            parser.error(str(exc))
+        return
 
     # ── 1. 创建摄像头 ──
     from src.dashboard.frame_producer import CameraFrameProducer

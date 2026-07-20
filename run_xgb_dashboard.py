@@ -125,6 +125,49 @@ def _with_freshness(snapshot: SensorSnapshot, max_age_ms: float, default):
     }
 
 
+def _imu_acc_x_zero_risk_active(
+    imu: Any,
+    imu_status: dict,
+    threshold_mps2: float,
+) -> bool:
+    """Only a fresh, valid IMU sample may force the final risk to zero."""
+    if (
+        imu_status.get("status") != "active"
+        or not bool(imu_status.get("valid"))
+        or not bool(getattr(imu, "valid", False))
+    ):
+        return False
+    try:
+        acc_x = float(getattr(imu, "acc_x"))
+        threshold = float(threshold_mps2)
+    except (AttributeError, TypeError, ValueError):
+        return False
+    return (
+        math.isfinite(acc_x)
+        and math.isfinite(threshold)
+        and threshold >= 0.0
+        and abs(acc_x) <= threshold
+    )
+
+
+def _force_zero_risk_decision(
+    decision: dict | None,
+    *,
+    low_risk_label: str | None = None,
+) -> dict:
+    """Return a published decision whose compatible risk outputs are all zero."""
+    result = dict(decision or {})
+    result.update({
+        "level": 0,
+        "risk_score": 0.0,
+        "risk_score_100": 0.0,
+        "reason": "imu_acc_x_within_zero_risk_range",
+    })
+    if low_risk_label is not None:
+        result["label"] = str(low_risk_label)
+    return result
+
+
 class JsonlLogger:
     def __init__(self, path: Path) -> None:
         self.path = path
@@ -192,7 +235,7 @@ def _build_feature_config(config: dict):
     })
 
 
-def main() -> None:
+def main(argv: list[str] | None = None) -> None:
     parser = argparse.ArgumentParser(description="Standalone XGBoost risk monitor")
     parser.add_argument("--host", default="0.0.0.0")
     parser.add_argument("--port", type=int, default=8000)
@@ -224,13 +267,18 @@ def main() -> None:
     parser.add_argument("--cloud-enable", action="store_true")
     parser.add_argument("--cloud-url", default="http://124.70.108.34")
     parser.add_argument("--device-id", default="bike-001")
+    parser.add_argument(
+        "--no-bonjour",
+        action="store_true",
+        help="disable the legacy RiderGuardian Bonjour/mDNS advertisement",
+    )
     parser.add_argument("--cloud-state-hz", type=float, default=1.0)
     parser.add_argument("--cloud-video-fps", type=float, default=10.0)
     parser.add_argument("--cloud-video-seconds", type=float, default=60.0)
     parser.add_argument("--cloud-spool", default="data/cloud_spool")
     parser.add_argument("--cloud-video-queue-size", type=int, default=8)
     parser.add_argument("--cloud-spool-max-gb", type=float, default=2.0)
-    args = parser.parse_args()
+    args = parser.parse_args(argv)
     if args.motor_mode == "real" and not args.confirm_motor_real:
         parser.error("--motor-mode real requires --confirm-motor-real")
 
@@ -246,6 +294,19 @@ def main() -> None:
     )
     profile_cfg = ports_cfg[args.profile]
     runtime = runtime_cfg["runtime"]
+    imu_zero_risk_threshold_mps2 = float(
+        runtime_cfg["imu_features"].get(
+            "zero_risk_acc_x_abs_max_mps2",
+            0.05,
+        )
+    )
+    if (
+        not math.isfinite(imu_zero_risk_threshold_mps2)
+        or imu_zero_risk_threshold_mps2 < 0.0
+    ):
+        parser.error(
+            "imu_features.zero_risk_acc_x_abs_max_mps2 must be finite and non-negative"
+        )
     state_hz = float(args.state_hz or runtime["state_hz"])
     inference_hz = float(args.inference_hz or runtime["inference_hz"])
     if state_hz <= 0 or inference_hz <= 0 or inference_hz > state_hz:
@@ -398,6 +459,7 @@ def main() -> None:
         next_fallback_record = 0.0
         last_prediction = None
         fallback_active = False
+        imu_zero_risk_was_active = False
         recovery_samples = 0
         recovery_required = max(
             1,
@@ -535,8 +597,19 @@ def main() -> None:
                 if fallback_decision is not None else
                 last_prediction.risk_score if last_prediction is not None else 0.0
             )
+            imu_zero_risk_active = _imu_acc_x_zero_risk_active(
+                imu,
+                imu_status,
+                imu_zero_risk_threshold_mps2,
+            )
+            if imu_zero_risk_active:
+                final_level = 0
+                final_risk_score = 0.0
             if motor_runtime is not None:
-                if fallback_active:
+                if imu_zero_risk_active:
+                    motor_gate_open = True
+                    motor_gate_reason = "imu_acc_x_zero_risk"
+                elif fallback_active:
                     if (
                         fallback_decision is None
                         or fallback_decision.level is None
@@ -565,7 +638,11 @@ def main() -> None:
                 dispatch_fallback = (
                     fallback_active and started >= next_fallback_dispatch
                 )
-                if predicted_now or dispatch_fallback:
+                dispatch_imu_zero = (
+                    imu_zero_risk_active
+                    and not imu_zero_risk_was_active
+                )
+                if predicted_now or dispatch_fallback or dispatch_imu_zero:
                     motor_runtime.apply_prediction(
                         level=int(final_level or 0),
                         risk_score=float(final_risk_score or 0.0),
@@ -576,6 +653,7 @@ def main() -> None:
                         next_fallback_dispatch = started + inference_interval
                 elif not motor_gate_open:
                     motor_runtime.fail_closed(motor_gate_reason)
+            imu_zero_risk_was_active = imu_zero_risk_active
 
             motor_state = (
                 motor_runtime.snapshot() if motor_runtime is not None else {
@@ -591,6 +669,20 @@ def main() -> None:
             prediction_payload = (
                 last_prediction.as_dict() if last_prediction else None
             )
+            if imu_zero_risk_active and prediction_payload is not None:
+                prediction_payload = _force_zero_risk_decision(
+                    prediction_payload,
+                    low_risk_label=predictor.labels.get(0, "低风险"),
+                )
+            effective_decision_payload = (
+                fallback_decision.as_dict()
+                if fallback_decision is not None else None
+            )
+            if imu_zero_risk_active:
+                effective_decision_payload = _force_zero_risk_decision(
+                    effective_decision_payload or prediction_payload,
+                    low_risk_label=predictor.labels.get(0, "低风险"),
+                )
             serialized_features = _serializable_features(frame.values)
             sensor_states = {
                 "camera": {
@@ -650,6 +742,10 @@ def main() -> None:
                 "state_hz": state_hz,
                 "inference_hz": inference_hz,
                 "confidence_warning_below": runtime["confidence_warning_below"],
+                "imu_zero_risk_acc_x_abs_max_mps2": (
+                    imu_zero_risk_threshold_mps2
+                ),
+                "imu_zero_risk_active": imu_zero_risk_active,
                 "motor_mode": args.motor_mode,
                 "motor_gate_required_sensors": [],
                 "gps_required_for_motor_gate": False,
@@ -685,10 +781,7 @@ def main() -> None:
                 frame_width=camera.width,
                 frame_height=camera.height,
                 started_at=started_at,
-                effective_decision=(
-                    fallback_decision.as_dict()
-                    if fallback_decision is not None else None
-                ),
+                effective_decision=effective_decision_payload,
                 decision_source=decision_source,
                 missing_sensors=missing_sensors,
                 degraded_reasons=degraded_reasons,
@@ -721,6 +814,15 @@ def main() -> None:
 
     server.inject_state_store(state_store)
     server.inject_camera(camera)
+    bonjour_service = None
+    if not args.no_bonjour:
+        from src.dashboard.bonjour import BonjourDashboardService
+
+        bonjour_service = BonjourDashboardService(
+            port=args.port,
+            device_id=args.device_id,
+        )
+        bonjour_service.start()
     print("=" * 68)
     print("Standalone XGBoost Risk Monitor")
     print(f"URL: http://{args.host}:{args.port}")
@@ -756,6 +858,8 @@ def main() -> None:
     finally:
         stop_event.set()
         inference_thread.join(timeout=3.0)
+        if bonjour_service is not None:
+            bonjour_service.close()
         if motor_runtime is not None:
             motor_runtime.shutdown()
         if cloud_sync is not None:

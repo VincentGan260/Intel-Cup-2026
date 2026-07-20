@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import ast
 import csv
+import math
 import sys
 from pathlib import Path
 
@@ -112,6 +113,50 @@ def test_visual_features_are_category_agnostic() -> None:
     assert features_for("bicycle") == features_for("car")
 
 
+def test_valid_fresh_imu_acc_x_zero_risk_override() -> None:
+    from src.fusion.data_types import IMUData
+    from run_xgb_dashboard import (
+        _force_zero_risk_decision,
+        _imu_acc_x_zero_risk_active,
+    )
+
+    active = {"status": "active", "valid": True}
+    assert _imu_acc_x_zero_risk_active(
+        IMUData(valid=True, acc_x=0.0), active, 0.05
+    )
+    assert _imu_acc_x_zero_risk_active(
+        IMUData(valid=True, acc_x=0.05), active, 0.05
+    )
+    assert _imu_acc_x_zero_risk_active(
+        IMUData(valid=True, acc_x=-0.05), active, 0.05
+    )
+    assert not _imu_acc_x_zero_risk_active(
+        IMUData(valid=True, acc_x=0.050001), active, 0.05
+    )
+    assert not _imu_acc_x_zero_risk_active(
+        IMUData(valid=False, acc_x=0.0), active, 0.05
+    )
+    assert not _imu_acc_x_zero_risk_active(
+        IMUData(valid=True, acc_x=0.0),
+        {"status": "stale", "valid": False},
+        0.05,
+    )
+    assert not _imu_acc_x_zero_risk_active(
+        IMUData(valid=True, acc_x=math.nan), active, 0.05
+    )
+
+    original = {"level": 2, "risk_score": 0.9, "label": "高风险"}
+    overridden = _force_zero_risk_decision(
+        original,
+        low_risk_label="低风险",
+    )
+    assert original == {"level": 2, "risk_score": 0.9, "label": "高风险"}
+    assert overridden["level"] == 0
+    assert overridden["risk_score"] == 0.0
+    assert overridden["risk_score_100"] == 0.0
+    assert overridden["label"] == "低风险"
+
+
 def test_model_matches_held_out_rows() -> None:
     from src.risk_ml.predictor import XGBoostRiskPredictor
 
@@ -172,6 +217,7 @@ def test_runtime_only_reaches_legacy_rules_through_degradation_controller() -> N
 def main() -> None:
     test_feature_contract_and_live_signals()
     test_visual_features_are_category_agnostic()
+    test_valid_fresh_imu_acc_x_zero_risk_override()
     test_model_matches_held_out_rows()
     test_runtime_only_reaches_legacy_rules_through_degradation_controller()
     print("standalone XGBoost runtime: all tests passed")

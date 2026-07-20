@@ -20,6 +20,8 @@ vision_features:
 imu_features:
   turn_sign: -1.0
   gravity_mps2: 9.80665
+  # IMU 数据有效且新鲜时，|acc_x| <= 此值强制最终风险为 0。
+  zero_risk_acc_x_abs_max_mps2: 0.05
   min_turn_compensation_speed_kmh: 3.0
   attention_error_deg: 10.0
   critical_error_deg: 25.0
