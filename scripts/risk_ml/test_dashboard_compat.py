@@ -66,12 +66,12 @@ def main() -> None:
         status="active",
         prediction=prediction,
         prediction_error="",
-        features={f"feature_{index}": float(index) for index in range(31)},
+        features={f"feature_{index}": float(index) for index in range(28)},
         modules={name: {"contribution": value}
                  for name, value in contributions.items()},
         feature_window={"warm": True},
         sensor_states=sensors,
-        runtime={"state_hz": 10.0, "feature_count": 31},
+        runtime={"state_hz": 10.0, "feature_count": 28},
         motor_control=True,
         motor={
             "mode": "real", "connected": True, "faulted": False,
@@ -86,13 +86,63 @@ def main() -> None:
         frame_height=480,
         started_at=1_699_999_900.0,
     )
-    assert state["decision_engine"] == "xgboost-only"
-    assert state["old_rules_loaded"] is False
+    assert state["decision_engine"] == "xgboost-with-deterministic-degradation"
+    assert state["decision_source"] == "xgboost"
+    assert state["old_rules_loaded"] is True
     assert state["radar_level"] == 2
     assert state["vision_level"] == 2
     assert state["radar_score"] == 0.4
     assert state["gps_score"] == 0.1
-    assert len(state["features"]) == 31
+    assert len(state["features"]) == 28
+
+    sensors["imu"] = {
+        "status": "invalid", "valid": False, "age_ms": 10.0, "error": ""
+    }
+    imu.valid = False
+    fallback_state = build_dashboard_state(
+        timestamp=1_700_000_001.0,
+        status="sensor_fallback",
+        prediction=prediction,
+        prediction_error="",
+        features=state["features"],
+        modules=state["modules"],
+        feature_window={"warm": True},
+        sensor_states=sensors,
+        runtime={"state_hz": 10.0, "feature_count": 28},
+        motor_control=True,
+        motor={
+            "mode": "real", "connected": True, "faulted": False,
+            "gate_open": True,
+            "gate_reason": "degraded_rule_prediction_accepted",
+        },
+        radar=radar,
+        gps=gps,
+        imu=imu,
+        vision=vision,
+        camera_available=True,
+        frame_width=640,
+        frame_height=480,
+        started_at=1_699_999_900.0,
+        effective_decision={
+            "level": 1,
+            "risk_score": 0.48,
+            "reason": "radar_attention",
+            "modality_scores": {
+                "radar": 0.48, "vision": 0.2, "imu": None,
+            },
+            "modality_levels": {
+                "radar": 1, "vision": 0, "imu": None,
+            },
+        },
+        decision_source="deterministic_fallback",
+        missing_sensors=("imu",),
+        degraded_reasons=("core_sensor_unavailable",),
+    )
+    assert fallback_state["risk_level"] == 1
+    assert fallback_state["risk_score"] == 0.48
+    assert fallback_state["imu_score"] is None
+    assert fallback_state["radar_score"] == 0.48
+    assert fallback_state["system_status"] == "degraded"
 
     payload = build_ride_payload(state, "bike-001")
     assert tuple(payload) == (
@@ -110,8 +160,14 @@ def main() -> None:
     api_state = json.loads(server.api_state().body)
     health = json.loads(asyncio.run(server.api_health()).body)
     html = asyncio.run(server.index()).body.decode()
-    assert api_state["decision_engine"] == "xgboost-only"
-    assert health["decision_engine"] == "xgboost-only"
+    assert (
+        api_state["decision_engine"]
+        == "xgboost-with-deterministic-degradation"
+    )
+    assert (
+        health["decision_engine"]
+        == "xgboost-with-deterministic-degradation"
+    )
     assert health["motor_control"] is True
     assert all(
         text in html

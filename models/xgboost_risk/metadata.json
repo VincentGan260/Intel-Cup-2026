@@ -9,6 +9,7 @@
   "risk_score_formula": "0.15*P(low)+0.55*P(medium)+0.90*P(high)",
   "synthetic_data_warning": "All labels are generated from deterministic rules; metrics measure rule imitation on synthetic scenarios, not real-road generalization.",
   "feature_columns": [
+    "gps_valid",
     "gps_speed_kmh",
     "imu_valid",
     "pitch_abs_deg",
@@ -28,20 +29,16 @@
     "radar_relative_speed_mps",
     "radar_closing_speed_mps",
     "radar_ttc_s",
-    "radar_person_matched",
     "vision_valid",
     "object_count",
     "path_object_count",
-    "target_is_person",
-    "target_is_vehicle",
-    "target_is_obstacle",
     "max_path_bottom_ratio",
     "box_growth_rate_per_s",
     "growth_duration_s",
     "visual_tau_s",
     "vision_confidence"
   ],
-  "feature_count": 31,
+  "feature_count": 28,
   "target": "risk_label",
   "parameters": {
     "n_estimators": 500,
@@ -62,24 +59,24 @@
     "random_state": 20260719,
     "n_jobs": 8
   },
-  "best_iteration": 232,
-  "best_score": 0.00877917720376798,
-  "training_seconds": 1.2714423340003123,
+  "best_iteration": 220,
+  "best_score": 0.01705649663303565,
+  "training_seconds": 1.2062257920006232,
   "random_seed": 20260719,
   "input_files": {
     "train": {
       "path": "data/xgb/train.csv",
-      "sha256": "df63dce7424f192a9d62f970729acb9d830fa1b51580dcbae3a2df77a5d43011",
+      "sha256": "a94262a0c5045d9b205bdab3b6240e78f57f7f81358b59db47abee80b80619d9",
       "rows": 5250
     },
     "validation": {
       "path": "data/xgb/validation.csv",
-      "sha256": "3b69226c1d70b719d4bcd7a0290d6334e743514d56a145e0a734e430e3bb2127",
+      "sha256": "7290271e4748e067b3899e3d19776a2371ffabcafde1c7638cf7d9dc45d9639b",
       "rows": 1125
     },
     "test": {
       "path": "data/xgb/test.csv",
-      "sha256": "b65ec7ceaf8ad5200e76e1a14654fb4b80ce3c9f6f4b3a1790e34ec9dc8bae09",
+      "sha256": "9101c724fa4bfd81d8539267f9773420000d1d5ea30444e0c19f1beaec1dcd63",
       "rows": 1125
     }
   },
@@ -92,32 +89,32 @@
   },
   "metrics": {
     "validation": {
-      "accuracy": 0.9982222222222222,
-      "balanced_accuracy": 0.9985185185185186,
-      "macro_precision": 0.9983164983164983,
-      "macro_recall": 0.9985185185185186,
-      "macro_f1": 0.9984137276460583,
-      "weighted_f1": 0.9982224928658466,
-      "high_risk_recall": 1.0,
-      "high_risk_missed_count": 0,
+      "accuracy": 0.9928888888888889,
+      "balanced_accuracy": 0.9922111626954737,
+      "macro_precision": 0.9937859759288331,
+      "macro_recall": 0.9922111626954737,
+      "macro_f1": 0.9929767649254141,
+      "weighted_f1": 0.992884963509513,
+      "high_risk_recall": 0.9893238434163701,
+      "high_risk_missed_count": 3,
       "high_risk_to_low_count": 0,
-      "high_risk_miss_rate": 0.0,
-      "multiclass_log_loss": 0.008779177442193031,
+      "high_risk_miss_rate": 0.010676156583629894,
+      "multiclass_log_loss": 0.017056496813893318,
       "confusion_matrix": [
         [
-          448,
-          2,
+          450,
+          0,
+          0
+        ],
+        [
+          5,
+          389,
           0
         ],
         [
           0,
-          394,
-          0
-        ],
-        [
-          0,
-          0,
-          281
+          3,
+          278
         ]
       ],
       "support": {
@@ -127,32 +124,32 @@
       }
     },
     "test": {
-      "accuracy": 0.9991111111111111,
-      "balanced_accuracy": 0.9992592592592593,
-      "macro_precision": 0.99915611814346,
-      "macro_recall": 0.9992592592592593,
-      "macro_f1": 0.9992067419415931,
-      "weighted_f1": 0.999111180035587,
-      "high_risk_recall": 1.0,
-      "high_risk_missed_count": 0,
+      "accuracy": 0.9911111111111112,
+      "balanced_accuracy": 0.9908593312498871,
+      "macro_precision": 0.9924593706388151,
+      "macro_recall": 0.9908593312498871,
+      "macro_f1": 0.9916100916520602,
+      "weighted_f1": 0.9911051623918417,
+      "high_risk_recall": 0.9928825622775801,
+      "high_risk_missed_count": 2,
       "high_risk_to_low_count": 0,
-      "high_risk_miss_rate": 0.0,
-      "multiclass_log_loss": 0.00462688785046339,
+      "high_risk_miss_rate": 0.0071174377224199285,
+      "multiclass_log_loss": 0.024787411093711853,
       "confusion_matrix": [
         [
-          449,
-          1,
+          450,
+          0,
+          0
+        ],
+        [
+          8,
+          386,
           0
         ],
         [
           0,
-          394,
-          0
-        ],
-        [
-          0,
-          0,
-          281
+          2,
+          279
         ]
       ],
       "support": {
@@ -170,6 +167,7 @@
       "2": "高"
     },
     "feature_columns": [
+      "gps_valid",
       "gps_speed_kmh",
       "imu_valid",
       "pitch_abs_deg",
@@ -189,13 +187,9 @@
       "radar_relative_speed_mps",
       "radar_closing_speed_mps",
       "radar_ttc_s",
-      "radar_person_matched",
       "vision_valid",
       "object_count",
       "path_object_count",
-      "target_is_person",
-      "target_is_vehicle",
-      "target_is_obstacle",
       "max_path_bottom_ratio",
       "box_growth_rate_per_s",
       "growth_duration_s",
@@ -210,7 +204,6 @@
       "timestamp_s",
       "window_duration_s",
       "boundary_case",
-      "target_type",
       "imu_rule_score",
       "motion_rule_score",
       "radar_rule_score",
@@ -226,7 +219,6 @@
       "visual_tau_s"
     ],
     "categorical_metadata_not_for_training": [
-      "target_type",
       "scenario_type"
     ],
     "random_seed": 20260719

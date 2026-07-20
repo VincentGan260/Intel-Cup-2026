@@ -61,7 +61,7 @@ LABEL_NAMES = {0: "低", 1: "中", 2: "高"}
 LOW_SCENARIOS = (
     "normal_straight",
     "normal_turn",
-    "distant_person_off_path",
+    "distant_obstacle_off_path",
     "visual_path_candidate",
     "radar_receding",
     "sensor_gap",
@@ -71,7 +71,6 @@ MEDIUM_SCENARIOS = (
     "moderate_acc_change",
     "sustained_outward_lean",
     "radar_attention",
-    "person_approach_off_path",
     "vision_path_near",
     "vision_looming_attention",
 )
@@ -91,15 +90,14 @@ SCENARIOS_BY_LABEL = {
 FIELDNAMES = [
     "sample_id", "split", "scenario_instance_id", "scenario_type",
     "timestamp_s", "window_duration_s", "boundary_case",
-    "gps_speed_kmh", "imu_valid", "pitch_abs_deg", "roll_abs_deg",
+    "gps_valid", "gps_speed_kmh", "imu_valid", "pitch_abs_deg", "roll_abs_deg",
     "roll_error_deg", "outward_rate_deg_s", "imu_attention_duration_ms",
     "imu_urgent_consistent_samples", "acc_norm_mean_mps2",
     "acc_delta_signed_mps2", "acc_change_abs_mps2", "jerk_abs_mps3",
     "radar_valid", "radar_target_count", "radar_path_target_count",
     "radar_min_distance_m", "radar_relative_speed_mps",
-    "radar_closing_speed_mps", "radar_ttc_s", "radar_person_matched",
-    "vision_valid", "object_count", "path_object_count", "target_type",
-    "target_is_person", "target_is_vehicle", "target_is_obstacle",
+    "radar_closing_speed_mps", "radar_ttc_s",
+    "vision_valid", "object_count", "path_object_count",
     "max_path_bottom_ratio", "box_growth_rate_per_s",
     "growth_duration_s", "visual_tau_s", "vision_confidence",
     "imu_rule_score", "motion_rule_score", "radar_rule_score",
@@ -108,15 +106,14 @@ FIELDNAMES = [
 ]
 
 FEATURE_COLUMNS = [
-    "gps_speed_kmh", "imu_valid", "pitch_abs_deg", "roll_abs_deg",
+    "gps_valid", "gps_speed_kmh", "imu_valid", "pitch_abs_deg", "roll_abs_deg",
     "roll_error_deg", "outward_rate_deg_s", "imu_attention_duration_ms",
     "imu_urgent_consistent_samples", "acc_norm_mean_mps2",
     "acc_delta_signed_mps2", "acc_change_abs_mps2", "jerk_abs_mps3",
     "radar_valid", "radar_target_count", "radar_path_target_count",
     "radar_min_distance_m", "radar_relative_speed_mps",
-    "radar_closing_speed_mps", "radar_ttc_s", "radar_person_matched",
+    "radar_closing_speed_mps", "radar_ttc_s",
     "vision_valid", "object_count", "path_object_count",
-    "target_is_person", "target_is_vehicle", "target_is_obstacle",
     "max_path_bottom_ratio", "box_growth_rate_per_s",
     "growth_duration_s", "visual_tau_s", "vision_confidence",
 ]
@@ -143,6 +140,7 @@ def base_sample(rng: random.Random) -> dict[str, Any]:
         "timestamp_s": uniform(rng, 0.0, 1800.0, 3),
         "window_duration_s": 1.0,
         "boundary_case": 0,
+        "gps_valid": 1,
         "gps_speed_kmh": uniform(rng, 5.0, 24.0),
         "imu_valid": 1,
         "pitch_abs_deg": uniform(rng, 0.0, 4.0),
@@ -162,14 +160,9 @@ def base_sample(rng: random.Random) -> dict[str, Any]:
         "radar_relative_speed_mps": 0.0,
         "radar_closing_speed_mps": 0.0,
         "radar_ttc_s": None,
-        "radar_person_matched": 0,
         "vision_valid": 1,
         "object_count": 0,
         "path_object_count": 0,
-        "target_type": "none",
-        "target_is_person": 0,
-        "target_is_vehicle": 0,
-        "target_is_obstacle": 0,
         "max_path_bottom_ratio": 0.0,
         "box_growth_rate_per_s": 0.0,
         "growth_duration_s": 0.0,
@@ -177,21 +170,12 @@ def base_sample(rng: random.Random) -> dict[str, Any]:
         "vision_confidence": 0.0,
     }
 
-
-def set_target_type(sample: dict[str, Any], target_type: str) -> None:
-    sample["target_type"] = target_type
-    sample["target_is_person"] = int(target_type == "person")
-    sample["target_is_vehicle"] = int(target_type == "vehicle")
-    sample["target_is_obstacle"] = int(target_type == "obstacle")
-
-
 def set_radar_approach(
     sample: dict[str, Any],
     rng: random.Random,
     ttc_s: float,
     *,
     path: bool,
-    person: bool,
 ) -> None:
     closing = uniform(rng, 0.45, 3.2)
     distance = max(0.15, closing * ttc_s)
@@ -203,7 +187,6 @@ def set_radar_approach(
         "radar_relative_speed_mps": round(-closing, 4),
         "radar_closing_speed_mps": closing,
         "radar_ttc_s": round(ttc_s, 4),
-        "radar_person_matched": int(person),
     })
 
 
@@ -211,7 +194,6 @@ def set_visual_target(
     sample: dict[str, Any],
     rng: random.Random,
     *,
-    target_type: str,
     path: bool,
     bottom_ratio: float,
     visual_tau_s: float | None,
@@ -232,7 +214,6 @@ def set_visual_target(
         "visual_tau_s": round(visual_tau_s, 4) if visual_tau_s is not None else None,
         "vision_confidence": uniform(rng, 0.62, 0.98),
     })
-    set_target_type(sample, target_type)
 
 
 def generate_scenario(
@@ -248,11 +229,11 @@ def generate_scenario(
         sample["roll_error_deg"] = uniform(rng, 0.5, 6.0)
         sample["outward_rate_deg_s"] = uniform(rng, 0.0, 4.5)
         sample["gps_speed_kmh"] = uniform(rng, 8.0, 25.0)
-    elif scenario == "distant_person_off_path":
+    elif scenario == "distant_obstacle_off_path":
         ttc = uniform(rng, 6.2, 12.0)
-        set_radar_approach(sample, rng, ttc, path=False, person=True)
+        set_radar_approach(sample, rng, ttc, path=False)
         set_visual_target(
-            sample, rng, target_type="person", path=False,
+            sample, rng, path=False,
             bottom_ratio=uniform(rng, 0.25, 0.55), visual_tau_s=None,
         )
     elif scenario == "visual_path_candidate":
@@ -261,8 +242,7 @@ def generate_scenario(
             if boundary else uniform(rng, 0.41, 0.58)
         )
         set_visual_target(
-            sample, rng, target_type=rng.choice(("person", "vehicle", "obstacle")),
-            path=True, bottom_ratio=bottom, visual_tau_s=None,
+            sample, rng, path=True, bottom_ratio=bottom, visual_tau_s=None,
         )
     elif scenario == "radar_receding":
         distance = uniform(rng, 1.0, 20.0)
@@ -314,22 +294,14 @@ def generate_scenario(
             near_threshold(rng, RADAR_ATTENTION_TTC_S, below=True, width=0.08)
             if boundary else uniform(rng, RADAR_URGENT_TTC_S + 0.08, 3.85)
         )
-        set_radar_approach(sample, rng, ttc, path=True, person=rng.random() < 0.55)
-    elif scenario == "person_approach_off_path":
-        ttc = uniform(rng, 2.65, 5.9)
-        set_radar_approach(sample, rng, ttc, path=False, person=True)
-        set_visual_target(
-            sample, rng, target_type="person", path=False,
-            bottom_ratio=uniform(rng, 0.35, 0.75), visual_tau_s=ttc,
-        )
+        set_radar_approach(sample, rng, ttc, path=True)
     elif scenario == "vision_path_near":
         bottom = (
             near_threshold(rng, VISION_NEAR_BOTTOM_RATIO, below=False, width=0.015)
             if boundary else uniform(rng, 0.63, 0.80)
         )
         set_visual_target(
-            sample, rng, target_type=rng.choice(("person", "vehicle", "obstacle")),
-            path=True, bottom_ratio=bottom, visual_tau_s=None,
+            sample, rng, path=True, bottom_ratio=bottom, visual_tau_s=None,
         )
     elif scenario == "vision_looming_attention":
         tau = (
@@ -337,8 +309,8 @@ def generate_scenario(
             if boundary else uniform(rng, VISION_URGENT_TAU_S + 0.08, 3.85)
         )
         set_visual_target(
-            sample, rng, target_type=rng.choice(("person", "vehicle", "obstacle")),
-            path=True, bottom_ratio=uniform(rng, 0.45, 0.79), visual_tau_s=tau,
+            sample, rng, path=True,
+            bottom_ratio=uniform(rng, 0.45, 0.79), visual_tau_s=tau,
         )
     elif scenario == "severe_acc_change":
         delta = (
@@ -363,21 +335,21 @@ def generate_scenario(
             near_threshold(rng, RADAR_URGENT_TTC_S, below=True, width=0.08)
             if boundary else uniform(rng, 0.45, 2.35)
         )
-        set_radar_approach(sample, rng, ttc, path=True, person=rng.random() < 0.65)
+        set_radar_approach(sample, rng, ttc, path=True)
     elif scenario == "vision_looming_urgent":
         tau = (
             near_threshold(rng, VISION_URGENT_TAU_S, below=True, width=0.08)
             if boundary else uniform(rng, 0.45, 2.35)
         )
         set_visual_target(
-            sample, rng, target_type=rng.choice(("person", "vehicle", "obstacle")),
-            path=True, bottom_ratio=uniform(rng, 0.62, 0.95), visual_tau_s=tau,
+            sample, rng, path=True,
+            bottom_ratio=uniform(rng, 0.62, 0.95), visual_tau_s=tau,
         )
     elif scenario == "multisensor_high":
         ttc = uniform(rng, 0.6, 2.2)
-        set_radar_approach(sample, rng, ttc, path=True, person=True)
+        set_radar_approach(sample, rng, ttc, path=True)
         set_visual_target(
-            sample, rng, target_type="person", path=True,
+            sample, rng, path=True,
             bottom_ratio=uniform(rng, 0.68, 0.96),
             visual_tau_s=uniform(rng, 0.6, 2.2),
         )
@@ -388,6 +360,13 @@ def generate_scenario(
             sample["jerk_abs_mps3"] = uniform(rng, 6.0, 14.0)
     else:
         raise ValueError(f"unknown scenario: {scenario}")
+
+    # GPS availability is independent of the road-risk scenario.  This gives
+    # every risk band both valid-GPS and indoor/no-fix examples instead of
+    # teaching the model that GPS loss always means low risk.
+    if rng.random() < 0.30:
+        sample["gps_valid"] = 0
+        sample["gps_speed_kmh"] = None
 
     return sample
 
@@ -403,7 +382,9 @@ def imu_score(sample: dict[str, Any]) -> float:
         if outward > 0 else None
     )
     urgent = (
-        sample["gps_speed_kmh"] >= 3.0
+        bool(sample["gps_valid"])
+        and sample["gps_speed_kmh"] is not None
+        and sample["gps_speed_kmh"] >= 3.0
         and error >= IMU_URGENT_MIN_ERROR_DEG
         and outward >= IMU_URGENT_OUTWARD_RATE_DEG_S
         and time_to_critical is not None
@@ -483,11 +464,6 @@ def radar_score(sample: dict[str, Any]) -> float:
         return 0.0
     if sample["radar_path_target_count"] > 0:
         return clamp(radar_ttc_score(float(ttc)))
-    # Requested extension: a vision-matched person approaching outside the
-    # point gate increases risk, but cannot become high without path evidence.
-    if sample["radar_person_matched"] and float(ttc) <= 6.0:
-        progress = clamp((6.0 - float(ttc)) / (6.0 - RADAR_URGENT_TTC_S))
-        return min(math.nextafter(HIGH_SCORE, 0.0), ATTENTION_SCORE + 0.25 * progress)
     return min(math.nextafter(ATTENTION_SCORE, 0.0), radar_ttc_score(float(ttc)))
 
 
@@ -624,9 +600,10 @@ def validate(splits: dict[str, list[dict[str, Any]]]) -> dict[str, Any]:
     normal = [row for row in all_rows if row["scenario_type"] == "normal_straight"]
     severe_acc = [row for row in all_rows if row["scenario_type"] == "severe_acc_change"]
     no_radar = [row for row in all_rows if row["radar_target_count"] == 0]
-    matched_person = [row for row in all_rows
-                      if row["radar_person_matched"]
-                      and row["radar_closing_speed_mps"] > 0]
+    urgent_path_radar = [row for row in all_rows
+                         if row["radar_path_target_count"] > 0
+                         and row["radar_ttc_s"] is not None
+                         and row["radar_ttc_s"] <= RADAR_URGENT_TTC_S]
     no_path = [row for row in all_rows if row["path_object_count"] == 0]
     looming = [row for row in all_rows
                if row["path_object_count"] > 0
@@ -644,8 +621,8 @@ def validate(splits: dict[str, list[dict[str, Any]]]) -> dict[str, Any]:
             mean(row["rule_score"] for row in severe_acc)
             > mean(row["rule_score"] for row in normal)
         ),
-        "matched_approaching_person_mean_risk_exceeds_no_radar_target": (
-            mean(row["rule_score"] for row in matched_person)
+        "urgent_path_radar_mean_risk_exceeds_no_radar_target": (
+            mean(row["rule_score"] for row in urgent_path_radar)
             > mean(row["rule_score"] for row in no_radar)
         ),
         "urgent_visual_looming_mean_risk_exceeds_no_path_object": (
@@ -677,7 +654,7 @@ def write_support_files(report: dict[str, Any]) -> None:
             if name not in FEATURE_COLUMNS and name != "risk_label"
         ],
         "missing_value_fields": ["radar_min_distance_m", "radar_ttc_s", "visual_tau_s"],
-        "categorical_metadata_not_for_training": ["target_type", "scenario_type"],
+        "categorical_metadata_not_for_training": ["scenario_type"],
         "random_seed": SEED,
     }
     (OUTPUT_DIR / "feature_config.json").write_text(
@@ -699,6 +676,7 @@ def write_support_files(report: dict[str, Any]) -> None:
         ("scenario_type", "元数据", "字符串", "场景类型", "不输入模型"),
         ("timestamp_s", "元数据", "s", "场景内时间戳", "不输入模型"),
         ("boundary_case", "元数据", "0/1", "是否为阈值边界样本", "不输入模型"),
+        ("gps_valid", "特征", "0/1", "GPS定位与速度是否可用", "输入模型"),
         ("gps_speed_kmh", "特征", "km/h", "GPS速度，用于IMU转弯补偿", "输入模型"),
         ("roll_error_deg", "特征", "deg", "转弯补偿后的横滚误差", "输入模型"),
         ("outward_rate_deg_s", "特征", "deg/s", "横滚误差向外增大速度", "输入模型"),
@@ -708,7 +686,6 @@ def write_support_files(report: dict[str, Any]) -> None:
         ("radar_relative_speed_mps", "特征", "m/s", "项目原始约定：靠近为负", "输入模型"),
         ("radar_closing_speed_mps", "特征", "m/s", "接近速度，靠近为正", "输入模型"),
         ("radar_ttc_s", "特征", "s", "路径目标TTC；无法计算时缺失", "输入模型"),
-        ("radar_person_matched", "特征", "0/1", "雷达目标是否与视觉行人匹配", "输入模型"),
         ("path_object_count", "特征", "个", "可行驶路径中的视觉目标数量", "输入模型"),
         ("max_path_bottom_ratio", "特征", "0-1", "路径目标框底部相对图像高度", "输入模型"),
         ("box_growth_rate_per_s", "特征", "1/s", "目标框尺度增长率", "输入模型"),
@@ -728,7 +705,7 @@ def write_support_files(report: dict[str, Any]) -> None:
     lines.extend([
         "",
         "完整训练字段以 `feature_config.json` 中的 `feature_columns` 为准。",
-        "空白的 TTC/距离表示当前窗口无法形成有效估计，不得替换为 0。",
+        "空白的 GPS速度、TTC或距离表示当前窗口无法形成有效估计，不得替换为 0。",
     ])
     (OUTPUT_DIR / "data_dictionary.md").write_text(
         "\n".join(lines) + "\n", encoding="utf-8"
@@ -752,11 +729,11 @@ def write_support_files(report: dict[str, Any]) -> None:
 - 项目原始相对速度约定为靠近负值，数据同时提供正向的 `radar_closing_speed_mps`。
 - 路径门内目标 TTC <= {RADAR_URGENT_TTC_S:.6f}s 为高风险。
 - 路径门内目标 TTC <= {RADAR_ATTENTION_TTC_S:.6f}s 为中风险。
-- 雷达无法独立确认“人”；`radar_person_matched=1` 表示与视觉行人匹配。
-- 用户要求扩展：匹配行人持续靠近但尚未进入路径时提高至中风险，上限低于高风险。
+- 雷达目标统一按障碍物处理，不使用视觉原始类别改变风险。
 
 ## 视觉
 
+- 所有检测目标在风险语义上统一为 `obstacle`，原始类别不输入模型。
 - 仅可行驶路径内目标参与视觉告警。
 - 目标底部比例 >= {VISION_NEAR_BOTTOM_RATIO} 进入中风险。
 - 视觉尺度增长时间 `visual_tau_s <= {VISION_ATTENTION_TAU_S}s` 进入中风险。
@@ -771,6 +748,12 @@ def write_support_files(report: dict[str, Any]) -> None:
 - 高风险需要GPS速度可用于转弯补偿、预测在
   {IMU_PREDICTION_HORIZON_S}s 内达到 {IMU_CRITICAL_ERROR_DEG}°，
   且连续满足 {IMU_URGENT_CONSISTENT_SAMPLES} 个样本。
+
+## GPS可用性
+
+- `gps_valid=1` 时输入有效速度。
+- `gps_valid=0` 时 `gps_speed_kmh` 保持缺失，不以 0 冒充静止。
+- GPS缺失样本独立叠加在低、中、高风险场景中，风险标签继续由可用模态决定。
 
 ## 加速度突变（原型扩展）
 

@@ -1,9 +1,5 @@
 #!/usr/bin/env python3
-"""Standalone DK-2500 XGBoost risk monitor.
-
-This entry point owns the sensors while it runs.  It intentionally does not
-import the deterministic risk rules or warning arbitration.
-"""
+"""DK-2500 XGBoost monitor with deterministic sensor-loss degradation."""
 
 from __future__ import annotations
 
@@ -83,13 +79,16 @@ def _vision_worker(
         last_frame_id = frame_id
         try:
             store.publish("vision", adapter.process(frame))
+            vision_result = adapter.get_latest_vision_result()
+            store.publish("vision_result", vision_result)
             from src.dashboard.server import update_vision_result_cache
 
-            update_vision_result_cache(adapter.get_latest_vision_result())
+            update_vision_result_cache(vision_result)
         except Exception as exc:
             store.publish(
                 "vision", VisionData(timestamp=time.time(), valid=False), str(exc)
             )
+            store.publish("vision_result", None, str(exc))
         stop_event.wait(0.03)
 
 
@@ -255,6 +254,10 @@ def main() -> None:
     from src.dashboard.frame_producer import CameraFrameProducer
     from src.dashboard.state_store import DashboardStateStore
     from src.fusion.data_types import GPSData, IMUData, RadarData, VisionData
+    from src.fusion.single_sensor_degradation import (
+        CORE_SENSORS,
+        SingleSensorDegradationController,
+    )
     from src.risk_ml.feature_window import FEATURE_NAMES, XGBoostFeatureWindow
     from src.risk_ml.predictor import MODULE_FEATURES, XGBoostRiskPredictor
     from src.sensors.gps_reader import GPSReader
@@ -265,6 +268,9 @@ def main() -> None:
     if tuple(predictor.feature_names) != FEATURE_NAMES:
         raise RuntimeError("runtime feature order does not match trained model metadata")
     extractor = XGBoostFeatureWindow(_build_feature_config(runtime_cfg))
+    degradation_controller = SingleSensorDegradationController(
+        ROOT / "configs/warning_rules.yaml"
+    )
 
     motor_runtime = None
     if args.motor_mode != "disabled":
@@ -316,7 +322,9 @@ def main() -> None:
         "schema_version": "xgb-risk-v2",
         "timestamp": time.time(),
         "status": "starting",
-        "decision_engine": "xgboost-only",
+        "decision_engine": "xgboost-with-deterministic-degradation",
+        "decision_source": "xgboost",
+        "old_rules_loaded": True,
         "motor_control": motor_runtime is not None,
         "motor": (
             motor_runtime.snapshot() if motor_runtime is not None else {
@@ -386,7 +394,17 @@ def main() -> None:
         update_interval = 1.0 / state_hz
         inference_interval = 1.0 / inference_hz
         next_inference = 0.0
+        next_fallback_dispatch = 0.0
+        next_fallback_record = 0.0
         last_prediction = None
+        fallback_active = False
+        recovery_samples = 0
+        recovery_required = max(
+            1,
+            int(math.ceil(
+                float(runtime.get("recovery_stable_s", 1.0)) * state_hz
+            )),
+        )
         while not stop_event.is_set():
             started = time.monotonic()
             radar, radar_status = _with_freshness(
@@ -401,6 +419,39 @@ def main() -> None:
             vision, vision_status = _with_freshness(
                 snapshots.get("vision", VisionData()), runtime["vision_stale_ms"], VisionData()
             )
+            vision_result_snapshot = snapshots.get("vision_result", None)
+            vision_result_age_ms = (
+                max(
+                    0.0,
+                    (
+                        time.monotonic()
+                        - vision_result_snapshot.updated_monotonic
+                    ) * 1000.0,
+                )
+                if vision_result_snapshot.updated_monotonic else None
+            )
+            vision_result = (
+                vision_result_snapshot.value
+                if (
+                    vision_result_age_ms is not None
+                    and vision_result_age_ms <= runtime["vision_stale_ms"]
+                )
+                else None
+            )
+            if (
+                vision_adapter is not None
+                and vision_status["status"] == "active"
+                and vision_result is None
+            ):
+                vision_status = {
+                    **vision_status,
+                    "status": "invalid",
+                    "valid": False,
+                    "error": (
+                        vision_result_snapshot.error
+                        or "vision result unavailable"
+                    ),
+                }
             frame = extractor.update(
                 now_monotonic=started,
                 gps=gps,
@@ -421,27 +472,85 @@ def main() -> None:
                     last_prediction = None
                 next_inference = started + inference_interval
 
-            if not frame.warm:
+            core_usable = {
+                "radar": radar_status["status"] == "active",
+                "vision": (
+                    vision_adapter is not None
+                    and vision_status["status"] == "active"
+                    and vision_result is not None
+                ),
+                "imu": imu_status["status"] == "active",
+            }
+            missing_sensors = tuple(
+                name for name in CORE_SENSORS
+                if not core_usable[name]
+            )
+            if missing_sensors:
+                fallback_active = True
+                recovery_samples = 0
+            elif fallback_active:
+                recovery_samples += 1
+                if recovery_samples >= recovery_required:
+                    fallback_active = False
+                    recovery_samples = 0
+
+            fallback_decision = None
+            if fallback_active:
+                fallback_decision = degradation_controller.evaluate(
+                    now_monotonic_ns=time.monotonic_ns(),
+                    radar=radar,
+                    radar_usable=core_usable["radar"],
+                    vision_result=vision_result,
+                    vision_usable=core_usable["vision"],
+                    imu=imu,
+                    imu_usable=core_usable["imu"],
+                    gps=gps,
+                    gps_usable=gps_status["status"] == "active",
+                )
+
+            gps_degraded = gps_status["status"] != "active"
+            recovering = fallback_active and not missing_sensors
+            if fallback_active:
+                status = "recovering" if recovering else "sensor_fallback"
+            elif not frame.warm:
                 status = "warming_up"
             elif last_prediction is None:
                 status = "model_error"
             elif last_prediction.confidence < float(runtime["confidence_warning_below"]):
                 status = "low_confidence"
+            elif gps_degraded:
+                status = "gps_degraded"
             else:
                 status = "active"
 
             motor_gate_open = False
             motor_gate_reason = "disabled"
+            final_level = (
+                fallback_decision.level
+                if fallback_decision is not None else
+                last_prediction.level if last_prediction is not None else 0
+            )
+            final_risk_score = (
+                fallback_decision.risk_score
+                if fallback_decision is not None else
+                last_prediction.risk_score if last_prediction is not None else 0.0
+            )
             if motor_runtime is not None:
-                required_sensor_statuses = {
-                    "radar": radar_status["status"],
-                    "imu": imu_status["status"],
-                    "vision": (
-                        vision_status["status"]
-                        if vision_adapter is not None else "disabled"
-                    ),
-                }
-                if not frame.warm:
+                if fallback_active:
+                    if (
+                        fallback_decision is None
+                        or fallback_decision.level is None
+                        or fallback_decision.risk_score is None
+                    ):
+                        motor_gate_reason = "fallback_decision_unavailable"
+                    else:
+                        motor_gate_open = True
+                        motor_gate_reason = (
+                            "fallback_recovery_prediction_accepted"
+                            if recovering
+                            else "degraded_rule_prediction_accepted"
+                        )
+                elif not frame.warm:
                     motor_gate_reason = "feature_window_warming"
                 elif last_prediction is None:
                     motor_gate_reason = "prediction_unavailable"
@@ -449,25 +558,22 @@ def main() -> None:
                     runtime["confidence_warning_below"]
                 ):
                     motor_gate_reason = "prediction_low_confidence"
-                elif any(
-                    value != "active"
-                    for value in required_sensor_statuses.values()
-                ):
-                    motor_gate_reason = "required_sensor_not_active"
                 else:
                     motor_gate_open = True
                     motor_gate_reason = "xgboost_prediction_accepted"
 
-                if predicted_now:
+                dispatch_fallback = (
+                    fallback_active and started >= next_fallback_dispatch
+                )
+                if predicted_now or dispatch_fallback:
                     motor_runtime.apply_prediction(
-                        level=last_prediction.level if last_prediction else 0,
-                        risk_score=(
-                            last_prediction.risk_score
-                            if last_prediction else 0.0
-                        ),
+                        level=int(final_level or 0),
+                        risk_score=float(final_risk_score or 0.0),
                         gate_open=motor_gate_open,
                         gate_reason=motor_gate_reason,
                     )
+                    if dispatch_fallback:
+                        next_fallback_dispatch = started + inference_interval
                 elif not motor_gate_open:
                     motor_runtime.fail_closed(motor_gate_reason)
 
@@ -516,9 +622,27 @@ def main() -> None:
                 }
                 for name, feature_names in MODULE_FEATURES.items()
             }
+            for name in ("radar", "vision", "imu", "gps"):
+                if sensor_states[name]["status"] != "active":
+                    module_outputs[name]["contribution"] = None
             from src.risk_ml.dashboard_compat import build_dashboard_state
 
             now_wall = time.time()
+            degraded_reasons = tuple(
+                reason for reason, active in (
+                    ("gps_unavailable", gps_degraded),
+                    ("core_sensor_unavailable", bool(missing_sensors)),
+                    ("sensor_recovery_hysteresis", recovering),
+                )
+                if active
+            )
+            decision_source = (
+                "deterministic_fallback_recovery"
+                if recovering else
+                "deterministic_fallback"
+                if fallback_active else
+                "xgboost"
+            )
             runtime_payload = {
                 **predictor.runtime_info(),
                 "profile": args.profile,
@@ -527,8 +651,10 @@ def main() -> None:
                 "inference_hz": inference_hz,
                 "confidence_warning_below": runtime["confidence_warning_below"],
                 "motor_mode": args.motor_mode,
-                "motor_gate_required_sensors": ["radar", "imu", "vision"],
+                "motor_gate_required_sensors": [],
                 "gps_required_for_motor_gate": False,
+                "degradation_core_sensors": list(CORE_SENSORS),
+                "degradation_recovery_samples": recovery_required,
                 "vision": (
                     vision_adapter.get_runtime_info() if vision_adapter else None
                 ),
@@ -559,15 +685,31 @@ def main() -> None:
                 frame_width=camera.width,
                 frame_height=camera.height,
                 started_at=started_at,
+                effective_decision=(
+                    fallback_decision.as_dict()
+                    if fallback_decision is not None else None
+                ),
+                decision_source=decision_source,
+                missing_sensors=missing_sensors,
+                degraded_reasons=degraded_reasons,
             )
             state_store.set_state(state)
             # The existing cloud schema requires non-null risk_score/risk_level.
             # Do not emit a structurally valid but semantically incomplete
             # sample while the XGBoost feature window is still warming.
-            if cloud_sync is not None and prediction_payload is not None:
+            if (
+                cloud_sync is not None
+                and state.get("risk_score") is not None
+                and state.get("risk_level") is not None
+            ):
                 cloud_sync.publish_state(state)
-            if predicted_now:
+            record_fallback = (
+                fallback_active and started >= next_fallback_record
+            )
+            if predicted_now or record_fallback:
                 logger.write(state)
+                if record_fallback:
+                    next_fallback_record = started + inference_interval
             stop_event.wait(max(0.0, update_interval - (time.monotonic() - started)))
 
     inference_thread = threading.Thread(
@@ -582,8 +724,11 @@ def main() -> None:
     print("=" * 68)
     print("Standalone XGBoost Risk Monitor")
     print(f"URL: http://{args.host}:{args.port}")
-    print(f"Decision engine: XGBoost only ({len(FEATURE_NAMES)} features)")
-    print("Old deterministic rules: NOT LOADED")
+    print(
+        "Decision engine: XGBoost + deterministic sensor degradation "
+        f"({len(FEATURE_NAMES)} features)"
+    )
+    print("Old deterministic rules: LOADED FOR SENSOR DEGRADATION ONLY")
     print(
         "Motor control: "
         + (

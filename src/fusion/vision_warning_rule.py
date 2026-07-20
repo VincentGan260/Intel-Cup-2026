@@ -63,6 +63,11 @@ class VisionWarningRule:
         self._tracks: list[dict[str, Any]] = []
         self._next_track_id = 1
 
+    def reset(self) -> None:
+        """Discard temporal tracks after the vision source becomes unavailable."""
+        self._tracks.clear()
+        self._next_track_id = 1
+
     def _inside_corridor(self, center_x: float, sample_y: int,
                          width: int, height: int) -> bool:
         top_y = self.corridor_top_y_ratio * (height - 1)
@@ -134,10 +139,8 @@ class VisionWarningRule:
             bbox = self._valid_bbox(getattr(detection, "bbox", None))
             if bbox is None:
                 continue
-            class_name = str(getattr(detection, "class_name", "unknown"))
             candidates = [track for track in self._tracks
-                          if track["id"] not in assigned_tracks
-                          and track["class_name"] == class_name]
+                          if track["id"] not in assigned_tracks]
             track = max(candidates,
                         key=lambda item: self._bbox_iou(bbox, item["bbox"]),
                         default=None)
@@ -145,7 +148,7 @@ class VisionWarningRule:
                     or self._bbox_iou(bbox, track["bbox"]) < self.track_iou_threshold):
                 track = {
                     "id": self._next_track_id,
-                    "class_name": class_name,
+                    "class_name": "obstacle",
                     "bbox": bbox,
                     "last_seen_ns": now_ns,
                     "history": deque(),
@@ -274,4 +277,3 @@ class VisionWarningRule:
                    "detection_count": len(detections)}
         return ModalityEvent(**base, usable=True, level=level, status="usable",
                              reason=reason, risk_score=risk_score, details=details)
-

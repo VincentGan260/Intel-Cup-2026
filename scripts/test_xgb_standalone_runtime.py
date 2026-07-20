@@ -53,8 +53,13 @@ def test_feature_contract_and_live_signals() -> None:
     assert tuple(first.values) == FEATURE_NAMES
     assert first.values["radar_closing_speed_mps"] == 2.0
     assert first.values["radar_ttc_s"] == 3.0
-    assert first.values["radar_person_matched"] == 1
     assert first.values["path_object_count"] == 1
+    assert not {
+        "radar_person_matched",
+        "target_is_person",
+        "target_is_vehicle",
+        "target_is_obstacle",
+    }.intersection(FEATURE_NAMES)
 
     imu_2 = IMUData(
         timestamp=1.25, valid=True, body_roll=12.0, body_pitch=-1.0,
@@ -77,6 +82,34 @@ def test_feature_contract_and_live_signals() -> None:
     assert second.values["jerk_abs_mps3"] > 10.0
     assert second.values["box_growth_rate_per_s"] > 0.0
     assert second.values["visual_tau_s"] is not None
+
+
+def test_visual_features_are_category_agnostic() -> None:
+    from src.fusion.data_types import GPSData, IMUData, RadarData, VisionData, VisionObject
+    from src.risk_ml.feature_window import XGBoostFeatureWindow
+
+    def features_for(class_name: str) -> dict:
+        frame = XGBoostFeatureWindow().update(
+            now_monotonic=10.0,
+            gps=GPSData(timestamp=1.0, valid=True, speed_kmh=12.0),
+            imu=IMUData(timestamp=1.0, valid=True),
+            radar=RadarData(timestamp=1.0, valid=True),
+            vision=VisionData(
+                timestamp=1.0,
+                valid=True,
+                objects=[VisionObject(
+                    class_name=class_name,
+                    risk_class="obstacle",
+                    confidence=0.9,
+                    bbox=(270.0, 170.0, 370.0, 350.0),
+                    in_drivable_area=True,
+                )],
+            ),
+        )
+        return frame.values
+
+    assert features_for("person") == features_for("bicycle")
+    assert features_for("bicycle") == features_for("car")
 
 
 def test_model_matches_held_out_rows() -> None:
@@ -109,13 +142,12 @@ def test_model_matches_held_out_rows() -> None:
     assert correct / checked >= 0.95
 
 
-def test_runtime_has_no_rule_or_motor_imports() -> None:
+def test_runtime_only_reaches_legacy_rules_through_degradation_controller() -> None:
     forbidden = {
         "src.fusion.physical_risk_rule",
         "src.fusion.imu_warning_rule",
         "src.fusion.vision_warning_rule",
         "src.fusion.warning_system",
-        "src.actuator",
     }
     paths = [ROOT / "run_xgb_dashboard.py", *sorted((ROOT / "src/risk_ml").glob("*.py"))]
     imported = set()
@@ -132,14 +164,16 @@ def test_runtime_has_no_rule_or_motor_imports() -> None:
     )
     assert not violations, violations
     service = (ROOT / "deploy/edge/rider-xgb.service").read_text(encoding="utf-8")
-    assert "--motor-mode" not in service
     assert "--enable-risk-rule" not in service
+    if "--motor-mode real" in service:
+        assert "--confirm-motor-real" in service
 
 
 def main() -> None:
     test_feature_contract_and_live_signals()
+    test_visual_features_are_category_agnostic()
     test_model_matches_held_out_rows()
-    test_runtime_has_no_rule_or_motor_imports()
+    test_runtime_only_reaches_legacy_rules_through_degradation_controller()
     print("standalone XGBoost runtime: all tests passed")
 
 

@@ -13,6 +13,7 @@ from typing import Mapping
 
 MODULE_FEATURES = {
     "gps": (
+        "gps_valid",
         "gps_speed_kmh",
     ),
     "imu": (
@@ -36,15 +37,11 @@ MODULE_FEATURES = {
         "radar_relative_speed_mps",
         "radar_closing_speed_mps",
         "radar_ttc_s",
-        "radar_person_matched",
     ),
     "vision": (
         "vision_valid",
         "object_count",
         "path_object_count",
-        "target_is_person",
-        "target_is_vehicle",
-        "target_is_obstacle",
         "max_path_bottom_ratio",
         "box_growth_rate_per_s",
         "growth_duration_s",

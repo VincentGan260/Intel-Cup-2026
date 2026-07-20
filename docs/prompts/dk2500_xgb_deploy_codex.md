@@ -9,7 +9,7 @@
 安全边界：
 1. 工作目录固定为 /home/intelcup/Intel-Cup-2026。
 2. 不得修改 src/fusion/physical_risk_rule.py、src/fusion/imu_warning_rule.py、
-   src/fusion/vision_warning_rule.py、configs/warning_rules.yaml 或
+   configs/warning_rules.yaml 或
    deploy/edge/rider-dashboard.service。
 3. 不得启动、导入或测试任何真实电机控制。新服务必须保持 motor_control=false。
 4. 如果仓库存在未提交修改，先停止并向我报告，不得 reset、stash 或覆盖。
@@ -29,12 +29,11 @@
    否则基于 origin/codex/standalone-xgboost-risk 创建同名跟踪分支。
    然后执行 git pull --ff-only origin codex/standalone-xgboost-risk。
 
-3. 验证隔离性：
+3. 验证决策边界：
    - 确认 run_xgb_dashboard.py 存在。
    - 确认 deploy/edge/rider-xgb.service 存在。
-   - 搜索 run_xgb_dashboard.py 和 src/risk_ml，确认没有导入
-     physical_risk_rule、imu_warning_rule、vision_warning_rule、
-     warning_system 或 src.actuator。
+   - 确认正常决策仍由 XGBoost 产生，确定性规则只通过
+     single_sensor_degradation 控制器用于传感器失效。
    - 确认 rider-xgb.service 中没有 --enable-risk-rule、--motor-mode
      或 --confirm-motor-real。
 
@@ -45,7 +44,7 @@
 5. 先执行不打开硬件的模型冒烟测试：
    /home/intelcup/miniconda3/envs/intel/bin/python \
      scripts/risk_ml/smoke_test_runtime.py
-   必须看到 status=ok、feature_count=31 且 accuracy>=0.95。
+   必须看到 status=ok、feature_count=28 且 accuracy>=0.95。
 
 6. 停用旧服务，避免摄像头和串口冲突：
    sudo systemctl disable --now rider-dashboard.service
@@ -65,14 +64,14 @@
    - systemctl is-active rider-xgb.service
    - curl --fail http://127.0.0.1:8001/api/health
    健康接口必须同时包含：
-   decision_engine="xgboost-only"
+   decision_engine="xgboost-with-deterministic-degradation"
    motor_control=false
 
 10. 读取一次 http://127.0.0.1:8001/api/state，确认：
-    - old_rules_loaded=false
+    - old_rules_loaded=true
     - motor_control=false
-    - runtime.feature_count=31
-    - features 中有 31 个字段
+    - runtime.feature_count=28
+    - features 中有 28 个字段
     - prediction 最迟在窗口预热后出现
 
 11. 最终向我报告：

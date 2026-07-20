@@ -67,17 +67,26 @@ def build_dashboard_state(
     frame_width: int,
     frame_height: int,
     started_at: float,
+    effective_decision: dict | None = None,
+    decision_source: str = "xgboost",
+    missing_sensors: tuple[str, ...] = (),
+    degraded_reasons: tuple[str, ...] = (),
 ) -> dict:
     """Return one state that serves XGBoost diagnostics and the old UI/cloud."""
     contributions = (
         prediction.get("module_contributions", {})
         if isinstance(prediction, dict) else {}
     )
-    level = prediction.get("level") if isinstance(prediction, dict) else None
+    decision = (
+        effective_decision
+        if isinstance(effective_decision, dict)
+        else prediction
+    )
+    level = decision.get("level") if isinstance(decision, dict) else None
     level = int(level) if level in (0, 1, 2) else None
     risk_score = (
-        float(prediction["risk_score"])
-        if isinstance(prediction, dict) and prediction.get("risk_score") is not None
+        float(decision["risk_score"])
+        if isinstance(decision, dict) and decision.get("risk_score") is not None
         else None
     )
     confidence = (
@@ -93,12 +102,26 @@ def build_dashboard_state(
     radar_targets = list(getattr(radar, "targets", []) or [])
     vision_objects = _vision_objects(vision)
 
-    radar_level = _compat_module_level(
-        level, contributions, "radar", sensor_valid=radar_valid
+    fallback_scores = (
+        decision.get("modality_scores", {})
+        if decision_source != "xgboost" and isinstance(decision, dict)
+        else {}
     )
-    vision_level = _compat_module_level(
-        level, contributions, "vision", sensor_valid=vision_valid
+    fallback_levels = (
+        decision.get("modality_levels", {})
+        if decision_source != "xgboost" and isinstance(decision, dict)
+        else {}
     )
+    if decision_source == "xgboost":
+        radar_level = _compat_module_level(
+            level, contributions, "radar", sensor_valid=radar_valid
+        )
+        vision_level = _compat_module_level(
+            level, contributions, "vision", sensor_valid=vision_valid
+        )
+    else:
+        radar_level = fallback_levels.get("radar") if radar_valid else None
+        vision_level = fallback_levels.get("vision") if vision_valid else None
     ranked_modules = sorted(
         (
             (name, _module_share(contributions, name) or 0.0)
@@ -108,20 +131,28 @@ def build_dashboard_state(
         reverse=True,
     )
     dominant = ranked_modules[0][0] if prediction and ranked_modules else "none"
-    warning_reason = (
-        f"xgboost:{prediction.get('label', level)};"
-        f"confidence={confidence:.3f};dominant={dominant}"
-        if prediction is not None and confidence is not None
-        else f"xgboost:{status}"
-    )
+    if decision_source == "xgboost":
+        warning_reason = (
+            f"xgboost:{prediction.get('label', level)};"
+            f"confidence={confidence:.3f};dominant={dominant}"
+            if prediction is not None and confidence is not None
+            else f"xgboost:{status}"
+        )
+    else:
+        warning_reason = (
+            f"{decision_source}:{decision.get('reason', 'fallback')}"
+            if isinstance(decision, dict)
+            else f"{decision_source}:unavailable"
+        )
+    is_degraded = bool(degraded_reasons or missing_sensors)
     risk_status = (
-        "unknown" if prediction is None
-        else "degraded" if status == "low_confidence"
+        "unknown" if decision is None
+        else "degraded" if is_degraded or status != "active"
         else "normal"
     )
     system_status = (
-        "unknown" if prediction is None
-        else "degraded" if status != "active"
+        "unknown" if decision is None
+        else "degraded" if is_degraded or status != "active"
         else "normal"
     )
 
@@ -138,16 +169,44 @@ def build_dashboard_state(
     if not gps_valid and gps_status in {"invalid", "active"}:
         gps_status = "no_fix"
 
-    module_scores = {
-        name: _module_share(contributions, name)
-        for name in ("radar", "vision", "imu", "gps")
+    sensor_validity = {
+        "radar": radar_valid,
+        "vision": vision_valid,
+        "imu": imu_valid,
+        "gps": gps_valid,
     }
+    if decision_source == "xgboost":
+        module_scores = {
+            name: (
+                _module_share(contributions, name)
+                if sensor_validity[name] else None
+            )
+            for name in ("radar", "vision", "imu", "gps")
+        }
+    else:
+        module_scores = {
+            name: (
+                fallback_scores.get(name)
+                if sensor_validity[name] else None
+            )
+            for name in ("radar", "vision", "imu")
+        }
+        module_scores["gps"] = None
+    risk_labels = {0: "低风险", 1: "中风险", 2: "高风险"}
     state = {
         "schema_version": "xgb-risk-v2",
         "timestamp": float(timestamp),
         "status": status,
-        "decision_engine": "xgboost-only",
-        "old_rules_loaded": False,
+        "decision_engine": "xgboost-with-deterministic-degradation",
+        "decision_source": decision_source,
+        "old_rules_loaded": True,
+        "degraded": is_degraded,
+        "missing_sensors": list(missing_sensors),
+        "degradation": {
+            "active": decision_source != "xgboost",
+            "reasons": list(degraded_reasons),
+            "missing_sensors": list(missing_sensors),
+        },
         "motor_control": bool(motor_control),
         "motor": motor,
         "prediction": prediction,
@@ -157,7 +216,7 @@ def build_dashboard_state(
         "feature_window": feature_window,
         "risk_score": risk_score,
         "risk_level": level,
-        "risk_label": prediction.get("label") if prediction else "等待模型",
+        "risk_label": risk_labels.get(level, "等待决策"),
         "risk_status": risk_status,
         "system_status": system_status,
         "warning_reason": warning_reason,
@@ -269,7 +328,9 @@ def build_dashboard_state(
         },
         "mode": "xgboost-real",
         "message": (
-            f"XGBoost {prediction.get('label')} · 主导贡献 {dominant.upper()}"
+            f"规则降级 {risk_labels.get(level, '等待决策')}"
+            if decision_source != "xgboost" and decision is not None
+            else f"XGBoost {prediction.get('label')} · 主导贡献 {dominant.upper()}"
             if prediction else "XGBoost 特征窗口预热中"
         ),
         "runtime": {
