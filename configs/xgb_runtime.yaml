@@ -1,7 +1,7 @@
 # Standalone XGBoost runtime configuration.
 #
-# This file belongs only to src/risk_ml.  It does not override or import the
-# deterministic competition warning rules in configs/warning_rules.yaml.
+# XGBoost owns normal decisions. Sensor-loss degradation reads the competition
+# warning thresholds from configs/warning_rules.yaml.
 window:
   window_s: 1.0
   warmup_s: 0.5
@@ -32,6 +32,8 @@ imu_features:
 runtime:
   state_hz: 20.0
   inference_hz: 2.0
+  # A recovered core sensor must remain healthy before returning to XGBoost.
+  recovery_stable_s: 1.0
   confidence_warning_below: 0.65
   radar_stale_ms: 500.0
   imu_stale_ms: 500.0

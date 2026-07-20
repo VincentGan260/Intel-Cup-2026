@@ -1,17 +1,17 @@
 # DK-2500 独立 XGBoost 风险服务
 
-该服务用于在一台 DK-2500 上停用旧规则服务后，独立测试三分类
-XGBoost 模型。它直接打开摄像头、雷达、GPS 和 IMU，不读取旧规则结果，
-不导入规则模块，也不创建电机控制器。
+该服务在 DK-2500 上以三分类 XGBoost 作为正常决策引擎。GPS 单独失效时，
+模型通过 `gps_valid=0` 继续推理；雷达、视觉或 IMU 单个失效时，服务使用
+原有确定性阈值规则和其余可用传感器生成降级决策。
 
 ## 隔离边界
 
 - 旧服务：`rider-dashboard.service`，原文件保持不变。
-- 新服务：`rider-xgb.service`，端口 `8001`。
+- 新服务：`rider-xgb.service`，端口 `8000`。
 - 新入口：`run_xgb_dashboard.py`。
 - 模型日志：`data/xgb_live/risk_predictions.jsonl`。
 - 新服务声明 `Conflicts=rider-dashboard.service`，避免串口和摄像头被重复打开。
-- 当前模型由合成规则标签训练，只允许观察输出，不允许控制真实执行器。
+- 模型由合成规则标签训练；真实电机仍需服务参数中的显式确认联锁。
 
 ## 首次部署
 
@@ -46,14 +46,14 @@ journalctl -u rider-xgb.service -n 100 --no-pager
 网页地址：
 
 ```text
-http://<DK2500-IP>:8001
+http://<DK2500-IP>:8000
 ```
 
 健康接口必须显示：
 
 ```json
 {
-  "decision_engine": "xgboost-only",
+  "decision_engine": "xgboost-with-deterministic-degradation",
   "motor_control": false
 }
 ```

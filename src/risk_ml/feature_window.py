@@ -15,6 +15,7 @@ from src.fusion.data_types import GPSData, IMUData, RadarData, RadarTarget, Visi
 
 
 FEATURE_NAMES = (
+    "gps_valid",
     "gps_speed_kmh",
     "imu_valid",
     "pitch_abs_deg",
@@ -34,22 +35,15 @@ FEATURE_NAMES = (
     "radar_relative_speed_mps",
     "radar_closing_speed_mps",
     "radar_ttc_s",
-    "radar_person_matched",
     "vision_valid",
     "object_count",
     "path_object_count",
-    "target_is_person",
-    "target_is_vehicle",
-    "target_is_obstacle",
     "max_path_bottom_ratio",
     "box_growth_rate_per_s",
     "growth_duration_s",
     "visual_tau_s",
     "vision_confidence",
 )
-
-VEHICLE_CLASSES = {"car", "bus", "truck", "bicycle", "motorcycle"}
-
 
 @dataclass(frozen=True)
 class FeatureWindowConfig:
@@ -127,7 +121,6 @@ class XGBoostFeatureWindow:
         self._urgent_consistent_samples = 0
         self._last_vision_source_ts: Optional[float] = None
         self._last_target_scale: Optional[float] = None
-        self._last_target_class: Optional[str] = None
         self._last_target_time: Optional[float] = None
         self._growth_started_at: Optional[float] = None
         self._box_growth_rate = 0.0
@@ -159,24 +152,21 @@ class XGBoostFeatureWindow:
                 gps_usable=bool(gps.valid),
             )
         else:
+            self._reset_imu_state()
             roll_error, outward_rate = roll_abs, 0.0
 
         radar_features = self._radar_features(radar)
         vision_features = self._vision_features(
             now_monotonic, vision, frame_width, frame_height
         )
-        radar_person_matched = int(
-            radar_features["radar_closing_speed_mps"] > 0.0
-            and bool(vision_features["target_is_person"])
-        )
-
         acceleration = self._acceleration_features()
         attention_duration_ms = (
             max(0.0, (now_monotonic - self._attention_started_at) * 1000.0)
             if self._attention_started_at is not None else 0.0
         )
         values: dict[str, float | int | None] = {
-            "gps_speed_kmh": _finite(gps.speed_kmh) if gps.valid else 0.0,
+            "gps_valid": int(bool(gps.valid)),
+            "gps_speed_kmh": _finite(gps.speed_kmh) if gps.valid else None,
             "imu_valid": int(bool(imu.valid)),
             "pitch_abs_deg": pitch_abs,
             "roll_abs_deg": roll_abs,
@@ -188,7 +178,6 @@ class XGBoostFeatureWindow:
             "imu_urgent_consistent_samples": self._urgent_consistent_samples,
             **acceleration,
             **radar_features,
-            "radar_person_matched": radar_person_matched,
             **vision_features,
         }
         if tuple(values) != FEATURE_NAMES:
@@ -298,6 +287,16 @@ class XGBoostFeatureWindow:
         self._previous_error_sign = error_sign
         return roll_error, outward_rate
 
+    def _reset_imu_state(self) -> None:
+        self._imu_samples.clear()
+        self._last_imu_source_ts = None
+        self._last_imu_update_time = None
+        self._previous_equilibrium_roll_deg = 0.0
+        self._previous_turn_compensation_valid = False
+        self._previous_error_sign = 0
+        self._attention_started_at = None
+        self._urgent_consistent_samples = 0
+
     def _acceleration_features(self) -> dict[str, float]:
         if not self._imu_samples:
             return {
@@ -382,6 +381,8 @@ class XGBoostFeatureWindow:
         frame_width: int,
         frame_height: int,
     ) -> dict[str, float | int | None]:
+        if not vision.valid:
+            self._reset_visual_track()
         objects = list(vision.objects) if vision.valid else []
         path_objects = [
             obj for obj in objects
@@ -393,16 +394,9 @@ class XGBoostFeatureWindow:
             default=None,
         )
 
-        target_person = 0
-        target_vehicle = 0
-        target_obstacle = 0
         bottom_ratio = 0.0
         confidence = 0.0
         if selected is not None:
-            class_name = str(selected.class_name).lower()
-            target_person = int(class_name == "person")
-            target_vehicle = int(class_name in VEHICLE_CLASSES)
-            target_obstacle = int(not target_person and not target_vehicle)
             bottom_ratio = max(0.0, min(
                 1.0, _finite(selected.bbox[3]) / max(1.0, frame_height)
             ))
@@ -418,9 +412,6 @@ class XGBoostFeatureWindow:
             "vision_valid": int(bool(vision.valid)),
             "object_count": len(objects),
             "path_object_count": len(path_objects),
-            "target_is_person": target_person,
-            "target_is_vehicle": target_vehicle,
-            "target_is_obstacle": target_obstacle,
             "max_path_bottom_ratio": bottom_ratio,
             "box_growth_rate_per_s": self._box_growth_rate if selected else 0.0,
             "growth_duration_s": self._growth_duration_s if selected else 0.0,
@@ -455,12 +446,10 @@ class XGBoostFeatureWindow:
             return
         self._last_vision_source_ts = source_ts
         scale = _object_scale(selected, frame_width, frame_height)
-        target_class = str(selected.class_name).lower()
         growth = 0.0
         if (
             self._last_target_scale is not None
             and self._last_target_time is not None
-            and self._last_target_class == target_class
             and self._last_target_scale > 1e-6
         ):
             dt = max(1e-3, now - self._last_target_time)
@@ -479,12 +468,10 @@ class XGBoostFeatureWindow:
             self._visual_tau_s = None
         self._box_growth_rate = growth
         self._last_target_scale = scale
-        self._last_target_class = target_class
         self._last_target_time = now
 
     def _reset_visual_track(self) -> None:
         self._last_target_scale = None
-        self._last_target_class = None
         self._last_target_time = None
         self._growth_started_at = None
         self._box_growth_rate = 0.0

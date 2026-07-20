@@ -63,7 +63,7 @@ HTML = """<!doctype html>
 </head>
 <body><main>
   <h1>XGBoost 骑行风险</h1>
-  <div class="sub">XGBoost-only · 31 项实时输入 · TreeSHAP 模块解释 · DRV2605 安全门禁</div>
+  <div class="sub">XGBoost 主模型 · 确定性传感器降级 · 类别无关输入 · DRV2605 安全门禁</div>
   <div class="grid">
     <section class="card"><div class="label">总体风险</div><div id="level" class="value muted">启动中</div><div id="score" class="hint">--</div></section>
     <section class="card"><div class="label">模型置信度</div><div id="confidence" class="value">--</div><div id="probHint" class="hint">等待概率</div></section>
@@ -84,7 +84,7 @@ HTML = """<!doctype html>
 
   <div id="modules" class="modules"></div>
   <div class="warning">模块百分比是 TreeSHAP 绝对贡献占比；“推高/压低”表示对高风险类别 margin 的方向，不是四个独立风险概率。</div>
-  <details class="card"><summary>查看 31 项模型输入</summary><table id="features"></table></details>
+  <details class="card"><summary>查看模型输入</summary><table id="features"></table></details>
 </main>
 <script>
 const $=id=>document.getElementById(id);
@@ -95,7 +95,16 @@ const levelNames=["静默","轻振","强振"];
 function renderModules(s,p){
   const modules=p.module_contributions||{}, outputs=s.modules||{}, sensors=s.sensors||{};
   $("modules").innerHTML=["gps","imu","radar","vision"].map(name=>{
-    const output=outputs[name]||{}, m=output.contribution||modules[name]||{}, sensor=output.sensor||sensors[name]||{};
+    const output=outputs[name]||{}, sensor=output.sensor||sensors[name]||{};
+    if((sensor.status||"unknown")!=="active"){
+      return `<section class="card"><div class="module-head"><div><div class="module-name">${moduleLabels[name]}</div><span class="pill">${sensor.status||"unknown"}</span></div><div class="module-pct">--</div></div><div class="meter"><i style="width:0"></i></div><div class="direction neutral">传感器不可用 · 不展示残留贡献</div></section>`;
+    }
+    const m=output.contribution||modules[name]||{};
+    if((s.decision_source||"xgboost")!=="xgboost"){
+      const rawScore=s[`${name}_score`], score=Number(rawScore);
+      const pct=rawScore!==null&&rawScore!==undefined&&Number.isFinite(score)?Math.max(0,Math.min(100,score*100)):null;
+      return `<section class="card"><div class="module-head"><div><div class="module-name">${moduleLabels[name]}</div><span class="pill">${sensor.status||"unknown"}</span></div><div class="module-pct">${pct===null?"--":fmt(pct,1)+"%"}</div></div><div class="meter"><i style="width:${pct||0}%"></i></div><div class="direction neutral">确定性降级规则评分</div></section>`;
+    }
     const targetMargin=Number((m.class_margin_contributions||{})[p.label]||0), direction=targetMargin>0.000001?"raises":targetMargin<-0.000001?"lowers":"neutral";
     const top=(m.top_features||[]).map(f=>`<div class="feature"><span>${f.name}</span><span>${fmt(f.high_risk_margin,3)}</span></div>`).join("");
     const pct=Math.max(0,Math.min(100,Number(m.importance_pct)||0));
@@ -105,8 +114,9 @@ function renderModules(s,p){
 async function refresh(){
   try{
     const response=await fetch("/api/state",{cache:"no-store"});const s=await response.json();const p=s.prediction||{};
-    $("level").textContent=p.label||s.status||"等待";$("level").className="value "+(p.level===2?"high":p.level===1?"mid":p.level===0?"low":"muted");
-    $("score").textContent=p.risk_score_100==null?"--":`风险评分 ${fmt(p.risk_score_100,1)} / 100`;
+    const finalLevel=s.risk_level??p.level, finalLabel=s.risk_label||p.label||s.status||"等待", finalScore=s.risk_score==null?p.risk_score_100:Number(s.risk_score)*100;
+    $("level").textContent=finalLabel;$("level").className="value "+(finalLevel===2?"high":finalLevel===1?"mid":finalLevel===0?"low":"muted");
+    $("score").textContent=finalScore==null?"--":`风险评分 ${fmt(finalScore,1)} / 100`;
     $("confidence").textContent=p.confidence==null?"--":fmt(p.confidence*100,1)+"%";
     $("probHint").textContent=`推理 ${fmt(p.inference_ms,2)} ms`;
     $("status").textContent=s.status||"unknown";$("status").className="value "+(s.status==="active"?"ok":s.status==="warming_up"?"mid":"error");
@@ -162,7 +172,10 @@ def api_health() -> JSONResponse:
         "status": health_status,
         "schema_version": state.get("schema_version", "xgb-risk-v2"),
         "service": "rider-xgb",
-        "decision_engine": "xgboost-only",
+        "decision_engine": state.get(
+            "decision_engine",
+            "xgboost-with-deterministic-degradation",
+        ),
         "old_rules_loaded": bool(state.get("old_rules_loaded", False)),
         "motor_control": motor_control,
         "motor_connected": bool(motor.get("connected")),
