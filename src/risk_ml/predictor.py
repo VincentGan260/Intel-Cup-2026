@@ -50,6 +50,18 @@ MODULE_FEATURES = {
     ),
 }
 
+# These IMU features are calculated from the GPS-speed-compensated roll state.
+# Keep their model inputs unchanged, but attribute their TreeSHAP values to the
+# two contributing modalities when GPS data is usable.
+GPS_IMU_SHARED_FEATURES = (
+    "roll_error_deg",
+    "outward_rate_deg_s",
+    "imu_attention_duration_ms",
+    "imu_urgent_consistent_samples",
+)
+GPS_IMU_GPS_SHARE = 0.30
+GPS_IMU_IMU_SHARE = 1.0 - GPS_IMU_GPS_SHARE
+
 
 @dataclass(frozen=True)
 class RiskPrediction:
@@ -118,8 +130,16 @@ class XGBoostRiskPredictor:
             raise ValueError(
                 "module feature groups do not match the model feature contract"
             )
+        if not set(GPS_IMU_SHARED_FEATURES).issubset(MODULE_FEATURES["imu"]):
+            raise ValueError("GPS-IMU shared features must belong to the IMU group")
 
-    def _module_explanation(self, matrix, kwargs: dict) -> tuple[dict, dict]:
+    def _module_explanation(
+        self,
+        matrix,
+        kwargs: dict,
+        *,
+        gps_usable: bool,
+    ) -> tuple[dict, dict]:
         import numpy as np
 
         contributions = self._booster.predict(
@@ -135,17 +155,46 @@ class XGBoostRiskPredictor:
                 f"got {contributions.shape}"
             )
 
-        feature_values = contributions[:, :-1]
+        # Use float64 for attribution redistribution so the 30/70 split does
+        # not expose float32 artifacts such as 9.599999 after rounding.
+        feature_values = contributions[:, :-1].astype(np.float64, copy=False)
         total_absolute = float(np.abs(feature_values).sum())
         feature_indexes = {
             name: index for index, name in enumerate(self.feature_names)
         }
+        shared_indexes = tuple(
+            feature_indexes[name] for name in GPS_IMU_SHARED_FEATURES
+        )
+        shared_index_set = set(shared_indexes)
         modules = {}
         for module, names in MODULE_FEATURES.items():
-            indexes = [feature_indexes[name] for name in names]
-            grouped = feature_values[:, indexes]
-            class_contributions = grouped.sum(axis=1)
-            module_absolute = float(np.abs(grouped).sum())
+            weighted_indexes = [
+                (feature_indexes[name], 1.0)
+                for name in names
+                if not (
+                    gps_usable
+                    and module == "imu"
+                    and feature_indexes[name] in shared_index_set
+                )
+            ]
+            if gps_usable and module == "gps":
+                weighted_indexes.extend(
+                    (index, GPS_IMU_GPS_SHARE) for index in shared_indexes
+                )
+            elif gps_usable and module == "imu":
+                weighted_indexes.extend(
+                    (index, GPS_IMU_IMU_SHARE) for index in shared_indexes
+                )
+
+            class_contributions = sum(
+                (feature_values[:, index] * weight
+                 for index, weight in weighted_indexes),
+                np.zeros(feature_values.shape[0], dtype=feature_values.dtype),
+            )
+            module_absolute = float(sum(
+                np.abs(feature_values[:, index]).sum() * weight
+                for index, weight in weighted_indexes
+            ))
             high_risk_contribution = float(class_contributions[2])
             if high_risk_contribution > 1e-6:
                 direction = "raises"
@@ -155,9 +204,9 @@ class XGBoostRiskPredictor:
                 direction = "neutral"
 
             ranked = sorted(
-                indexes,
-                key=lambda index: float(
-                    np.max(np.abs(feature_values[:, index]))
+                weighted_indexes,
+                key=lambda item: float(
+                    np.max(np.abs(feature_values[:, item[0]])) * item[1]
                 ),
                 reverse=True,
             )
@@ -177,13 +226,14 @@ class XGBoostRiskPredictor:
                     {
                         "name": self.feature_names[index],
                         "importance": round(
-                            float(np.max(np.abs(feature_values[:, index]))), 6
+                            float(np.max(np.abs(feature_values[:, index]))) * weight,
+                            6,
                         ),
                         "high_risk_margin": round(
-                            float(feature_values[2, index]), 6
+                            float(feature_values[2, index]) * weight, 6
                         ),
                     }
-                    for index in ranked[:3]
+                    for index, weight in ranked[:3]
                 ],
             }
 
@@ -195,6 +245,12 @@ class XGBoostRiskPredictor:
             "direction_semantics": (
                 "signed contribution to the high-risk class margin"
             ),
+            "gps_imu_shared_attribution": {
+                "active": gps_usable,
+                "gps_share": GPS_IMU_GPS_SHARE,
+                "imu_share": GPS_IMU_IMU_SHARE,
+                "features": list(GPS_IMU_SHARED_FEATURES),
+            },
             "class_bias": {
                 self.labels.get(class_index, str(class_index)): round(
                     float(contributions[class_index, -1]), 6
@@ -235,7 +291,9 @@ class XGBoostRiskPredictor:
             matrix, validate_features=True, **kwargs
         )
         module_contributions, explanation = self._module_explanation(
-            matrix, kwargs
+            matrix,
+            kwargs,
+            gps_usable=bool(features.get("gps_valid", 0)),
         )
         inference_ms = (time.perf_counter() - started) * 1000.0
         probabilities = [float(value) for value in raw_probabilities[0]]
