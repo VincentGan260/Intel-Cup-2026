@@ -76,6 +76,7 @@ class VisionAdapter:
             from src.vision.perception.vision_pipeline import VisionPipeline
             from src.vision.detection.detector import build_detector_from_config
             from src.vision.segmentation.segmenter import build_segmenter_from_config
+            from src.vision.profile_selector import select_segmentation_config
 
             # 1. 加载配置
             config_path = Path(self.pipeline_config_path)
@@ -98,9 +99,7 @@ class VisionAdapter:
             segmenter = None
             enable_seg = self._config.get("enable_segmentation", True)
             if enable_seg:
-                seg_cfg_path = self._config.get(
-                    "segmentation_config", "configs/vision/segmentation_openvino.yaml"
-                )
+                seg_cfg_path = select_segmentation_config(self._config)
                 seg_path = Path(seg_cfg_path)
                 if not seg_path.is_absolute():
                     seg_path = PROJECT_ROOT / seg_path

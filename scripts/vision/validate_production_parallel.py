@@ -25,6 +25,7 @@ if str(PROJECT_ROOT) not in sys.path:
 from src.vision.detection.detector import build_detector_from_config
 from src.vision.perception.vision_pipeline import VisionPipeline
 from src.vision.segmentation.segmenter import build_segmenter_from_config
+from src.vision.profile_selector import select_segmentation_config
 
 
 def load_yaml(path: Path) -> dict:
@@ -40,7 +41,7 @@ def resolve(path: str) -> Path:
 def build_pipeline(parallel: bool) -> VisionPipeline:
     pipeline_cfg = load_yaml(PROJECT_ROOT / "configs/vision/vision_pipeline.yaml")
     det_cfg = load_yaml(resolve(pipeline_cfg["detection_config"]))
-    seg_cfg = load_yaml(resolve(pipeline_cfg["segmentation_config"]))
+    seg_cfg = load_yaml(resolve(select_segmentation_config(pipeline_cfg)))
 
     contract = pipeline_cfg["deployment_contract"]
     actual_det = det_cfg["detector"]

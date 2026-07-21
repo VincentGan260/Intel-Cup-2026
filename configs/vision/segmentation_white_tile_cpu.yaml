@@ -1,0 +1,24 @@
+# Current development laptop fallback: OpenVINO on CPU.
+# The OpenVINO GPU device on this laptop resolves to an NVIDIA GPU and fails
+# in the OpenCL plugin; use segmentation_white_tile_fp16.yaml on an Intel GPU.
+backend: pidnet_openvino
+
+model:
+  xml_path: models/openvino/white-tile-road-fp16/white-tile-road.xml
+  input_height: 512
+  input_width: 896
+  class_names:
+    - background
+    - road
+  road_class_index: 1
+
+openvino:
+  device: CPU
+  inference_precision: FP16
+
+visualization:
+  alpha: 0.45
+  drivable_color_bgr: [0, 200, 0]
+
+output:
+  overlay_path: runs/vision/white_tile_deeplab/overlay_cpu.jpg

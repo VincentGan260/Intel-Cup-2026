@@ -72,6 +72,7 @@ logs/
 
 # 数据集打包目录（不上传）
 dataset_packages/
+deployment_packages/
 
 # -----------------------------------------------------------------------------
 # 大文件和数据（不上传）
@@ -99,6 +100,10 @@ datasets/
 data/raw/
 data/processed/
 data/recordings/
+
+# White-tile training data and downloaded training cache are local-only.
+white_tile_road/
+models/torch_cache/
 
 # -----------------------------------------------------------------------------
 # 样例目录（保留目录结构，上传少量样例）

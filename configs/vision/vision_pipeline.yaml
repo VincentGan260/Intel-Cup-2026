@@ -19,8 +19,16 @@ deployment_contract:
   segmentation: {precision: FP16, device: GPU}
 
 # 子模块配置文件路径
+# Segmentation profile: 1 = white-tile model, 2 = original ADAS model.
+# Edit this one number, then restart the vision process.
+segmentation_model: 1
+segmentation_profiles:
+  1: configs/vision/segmentation_white_tile_fp16.yaml
+  2: configs/vision/segmentation_adas_fp16.yaml
+
 detection_config: configs/vision/detection.yaml
-segmentation_config: configs/vision/segmentation_adas_fp16.yaml
+# Legacy fallback for tools that do not support segmentation_profiles yet.
+segmentation_config: configs/vision/segmentation_white_tile_fp16.yaml
 
 output:
   # 是否保存带检测框的调试图
